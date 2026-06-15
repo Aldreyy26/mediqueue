@@ -72,7 +72,7 @@ function InstallApp() {
       onMouseOver={(e) => e.currentTarget.style.background = '#334155'}
       onMouseOut={(e) => e.currentTarget.style.background = '#1e293b'}
     >
-      <FaDownload /> Install App sa Cellphone
+      <FaDownload /> Install App 
     </button>
   );
 }

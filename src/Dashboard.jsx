@@ -224,7 +224,7 @@ function Dashboard() {
           <div style={{ position: 'relative' }}>
             <button className="dash-icon-btn" onClick={() => setShowNotifDropdown(!showNotifDropdown)}><FaBell />{myNotifications.length > 0 && <span className="dash-badge">{myNotifications.length}</span>}</button>
             {showNotifDropdown && (
-              <div style={{ position: 'absolute', top: '45px', right: '0', background: 'white', width: '320px', borderRadius: '12px', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', border: '1px solid #e2e8f0', zIndex: 1000, overflow: 'hidden' }}>
+             <div style={{ position: 'absolute', top: '50px', left: '50%', transform: 'translateX(-50%)', background: 'white', width: '320px', maxWidth: '90vw', borderRadius: '12px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', border: '1px solid #e2e8f0', zIndex: 9999, overflow: 'hidden' }}>
                 <div style={{ padding: '15px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><h4 style={{ margin: 0, color: '#1e293b', fontSize: '14px' }}>Notifications</h4><span onClick={() => setShowNotifDropdown(false)} style={{ fontSize: '11px', color: '#64748b', cursor: 'pointer', fontWeight: 'bold' }}><FaTimes /> Close</span></div>
                 <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
                   {myNotifications.length === 0 ? <p style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>No new notifications.</p> : 
@@ -366,3 +366,4 @@ function Dashboard() {
 }
 
 export default Dashboard;
+
