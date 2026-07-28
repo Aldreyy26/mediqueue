@@ -1,17 +1,16 @@
-  import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth, database } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { ref, onValue, query, orderByChild, equalTo, update, push } from 'firebase/database';
 import { 
   FaBell, FaSignOutAlt, FaUser, FaRegCalendarAlt, FaFileAlt, 
-  FaCapsules, FaClipboardList, FaStethoscope, FaHeartbeat, 
+  FaClipboardList, FaStethoscope, FaHeartbeat, 
   FaRegListAlt, FaHeart, FaMapMarkerAlt, FaLightbulb, FaChevronRight,
   FaTimesCircle, FaCheckCircle, FaInfoCircle, FaExclamationTriangle, FaChartLine, FaTimes,
   FaArrowLeft, FaCamera, FaIdBadge, FaEnvelope, FaPhoneAlt, FaHome, FaStar, FaHistory, FaClock, FaBullhorn
 } from 'react-icons/fa';
 import BookingModal from './BookingModal';
-import Prescriptions from './Prescriptions';
 import Records from './Records';
 import AvailableTimes from './AvailableTimes';
 
@@ -37,11 +36,10 @@ function Dashboard() {
   const [hoverRating, setHoverRating] = useState(0);
   const [feedbackText, setFeedbackText] = useState('');
   const [systemSettings, setSystemSettings] = useState({ status: 'Open', closedReason: '' });
-
   const [alertBox, setAlertBox] = useState({ show: false, message: '', type: 'info' });
   const [confirmBox, setConfirmBox] = useState({ show: false, message: '', onConfirm: null });
+  
   const navigate = useNavigate();
-
   const showAlert = (message, type = 'info') => setAlertBox({ show: true, message, type });
   const showConfirm = (message, onConfirm) => setConfirmBox({ show: true, message, onConfirm });
 
@@ -51,7 +49,6 @@ function Dashboard() {
         onValue(ref(database, 'users/' + user.uid), (snapshot) => setUserData({ id: user.uid, ...snapshot.val() }));
         onValue(ref(database, 'liveQueue/current'), (snapshot) => { if (snapshot.exists()) setCurrentServing(snapshot.val()); });
         onValue(ref(database, 'settings'), (snapshot) => { if (snapshot.exists()) setSystemSettings(snapshot.val()); });
-
         const appointmentsRef = query(ref(database, 'appointments'), orderByChild('patientId'), equalTo(user.uid));
         onValue(appointmentsRef, (snapshot) => {
           if (snapshot.exists()) {
@@ -65,7 +62,6 @@ function Dashboard() {
             } else { setMyTicket("None"); setAssignedTime(null); setActiveApptId(null); }
           } else { setMyAppointments([]); setMyTicket("None"); setAssignedTime(null); setActiveApptId(null); }
         });
-
         onValue(ref(database, `notifications/${user.uid}`), (snapshot) => {
           if (snapshot.exists()) setMyNotifications(Object.keys(snapshot.val()).map(key => ({ id: key, ...snapshot.val()[key] })).reverse());
           else setMyNotifications([]);
@@ -110,7 +106,6 @@ function Dashboard() {
 
   const bpStatus = userData?.healthMetrics?.bp ? analyzeBP(userData.healthMetrics.bp) : null;
   const bmiStatus = computeBMI(userData?.healthMetrics?.weight, userData?.healthMetrics?.height);
-
   const handleLogout = () => signOut(auth).then(() => navigate('/'));
 
   const handleCancelAppointment = () => {
@@ -118,7 +113,6 @@ function Dashboard() {
     const finalReason = cancelReason === 'Others' ? otherReason : cancelReason;
     
     const targetAppt = myAppointments.find(a => a.id === activeApptId);
-
     update(ref(database, `appointments/${activeApptId}`), { 
       status: 'cancelled', 
       cancelReason: finalReason,
@@ -170,7 +164,7 @@ function Dashboard() {
       {/* ALERTS */}
       {alertBox.show && ( <div className="modal-overlay hide-on-print"><div className="modern-register-card" style={{ maxWidth: '350px', textAlign: 'center', padding: '30px', background: '#ffffff' }}><div style={{ fontSize: '50px', marginBottom: '15px', color: alertBox.type === 'success' ? '#10b981' : '#ef4444' }}>{alertBox.type === 'success' ? <FaCheckCircle /> : <FaTimesCircle />}</div><h3 style={{ color: '#1e293b', marginBottom: '10px' }}>{alertBox.message}</h3><button onClick={() => setAlertBox({ show: false, message: '', type: 'info' })} className="btn-green-full" style={{ margin: 0 }}>OK</button></div></div> )}
       {confirmBox.show && ( <div className="modal-overlay hide-on-print"><div className="modern-register-card" style={{ maxWidth: '400px', textAlign: 'center', padding: '30px', background: '#ffffff' }}><div style={{ fontSize: '50px', color: '#ef4444', marginBottom: '15px' }}><FaExclamationTriangle /></div><h3 style={{ color: '#1e293b', marginBottom: '10px' }}>{confirmBox.message}</h3><div style={{ display: 'flex', gap: '10px' }}><button onClick={() => setConfirmBox({ show: false, message: '', onConfirm: null })} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', background: 'white', color: '#64748b', fontWeight: 'bold', cursor: 'pointer' }}>Go Back</button><button onClick={() => { confirmBox.onConfirm(); setConfirmBox({ show: false, message: '', onConfirm: null }); }} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', background: '#ef4444', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}>Yes, Cancel it</button></div></div></div> )}
-
+      
       {/* CALL POP-UP MODAL */}
       {showCallPopup && (
         <div className="modal-overlay" style={{ zIndex: 9999 }}>
@@ -223,8 +217,8 @@ function Dashboard() {
         <div className="dash-nav-right">
           <div style={{ position: 'relative' }}>
             <button className="dash-icon-btn" onClick={() => setShowNotifDropdown(!showNotifDropdown)}><FaBell />{myNotifications.length > 0 && <span className="dash-badge">{myNotifications.length}</span>}</button>
-            {showNotifDropdown && (
-             <div style={{ position: 'absolute', top: '50px', left: '50%', transform: 'translateX(-50%)', background: 'white', width: '320px', maxWidth: '90vw', borderRadius: '12px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', border: '1px solid #e2e8f0', zIndex: 9999, overflow: 'hidden' }}>
+          {showNotifDropdown && (
+ <div style={{ position: 'absolute', top: '45px', right: '-10px', background: 'white', width: '320px', maxWidth: '85vw', borderRadius: '12px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', border: '1px solid #e2e8f0', zIndex: 9999, overflow: 'hidden' }}>
                 <div style={{ padding: '15px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><h4 style={{ margin: 0, color: '#1e293b', fontSize: '14px' }}>Notifications</h4><span onClick={() => setShowNotifDropdown(false)} style={{ fontSize: '11px', color: '#64748b', cursor: 'pointer', fontWeight: 'bold' }}><FaTimes /> Close</span></div>
                 <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
                   {myNotifications.length === 0 ? <p style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>No new notifications.</p> : 
@@ -240,7 +234,7 @@ function Dashboard() {
             )}
           </div>
           <div className="dash-user-pill" onClick={() => setActiveTab('profile')} style={{ cursor: 'pointer' }}><FaUser /> {userData ? userData.fullName.split(' ')[0] : "Resident"}</div>
-          <div className="dash-user-pill" onClick={handleLogout} style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}><FaSignOutAlt /></div>
+          <div className="dash-user-pill" onClick={handleLogout} style={{ background: 'transparent', border: 'none', padding: '0', cursor: 'pointer' }}><FaSignOutAlt /></div>
         </div>
       </nav>
 
@@ -271,8 +265,6 @@ function Dashboard() {
                </div>
              )}
            </div>
-        ) : activeTab === 'prescriptions' ? (
-           <Prescriptions onBack={() => setActiveTab('dashboard')} />
         ) : activeTab === 'history' ? (
            <Records onBack={() => setActiveTab('dashboard')} userData={userData} appointments={myAppointments} onRate={(app) => {setFeedbackAppt(app); setRating(app.rating || 0); setFeedbackText(app.feedbackComment || '');}} />
         ) : activeTab === 'availableTimes' ? (
@@ -285,13 +277,13 @@ function Dashboard() {
                  <div><h4 style={{ margin: 0, color: '#ef4444', fontSize: '15px' }}>CLINIC IS CURRENTLY CLOSED</h4><p style={{ margin: 0, color: '#b91c1c', fontSize: '13px' }}>{systemSettings.closedReason || 'No appointments are being accepted at this time.'}</p></div>
                </div>
              )}
-
              <div className="dash-hero">
                <FaStethoscope style={{ position: 'absolute', right: '-20px', top: '10px', fontSize: '150px', opacity: '0.1' }} />
                <h1>Welcome back, {userData ? userData.fullName.split(' ')[0] : "Resident"}! 👋</h1>
                <p>Book your appointment and get your queue number</p>
              </div>
-
+             
+             {/* QUICK ACTIONS: INALIS ANG PRESCRIPTION AT NAKAGRID SA TATLO */}
              <div className="dash-quick-actions">
                <div className="dash-action-card" onClick={handleBookClick} style={{ opacity: myTicket !== "None" || systemSettings.status === 'Closed' ? 0.6 : 1, cursor: myTicket !== "None" || systemSettings.status === 'Closed' ? 'not-allowed' : 'pointer' }}>
                  <div className="dash-icon-wrapper" style={{ background: '#10b981' }}><FaRegCalendarAlt /></div><span>Book Appointment</span>
@@ -299,14 +291,11 @@ function Dashboard() {
                <div className="dash-action-card" onClick={() => setActiveTab('history')}>
                  <div className="dash-icon-wrapper" style={{ background: '#3b82f6' }}><FaHistory /></div><span>View History</span>
                </div>
-               <div className="dash-action-card" onClick={() => setActiveTab('prescriptions')}>
-                 <div className="dash-icon-wrapper" style={{ background: '#a855f7' }}><FaCapsules /></div><span>Prescriptions</span>
-               </div>
                <div className="dash-action-card" onClick={() => setActiveTab('availableTimes')}>
                  <div className="dash-icon-wrapper" style={{ background: '#f97316' }}><FaClock /></div><span>Available Slots</span>
                </div>
              </div>
-
+             
              <div className="dash-grid">
                <div className="dash-left">
                  <div className="dash-card">
@@ -324,13 +313,11 @@ function Dashboard() {
                      {myTicket !== "None" && (<button onClick={() => setShowCancelModal(true)} style={{ width: '100%', padding: '15px', borderRadius: '12px', background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', fontWeight: '700', fontSize: '15px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginTop: '20px' }}><FaTimesCircle style={{ fontSize: '18px' }} /> Cancel My Ticket</button>)}
                    </div>
                  </div>
-
                  <div className="dash-card">
                    <div className="dash-card-header"><div className="dash-card-icon" style={{ color: '#3b82f6', background: '#eff6ff' }}><FaBell /></div><div><h3 className="dash-card-title">Recent Updates</h3><p className="dash-card-subtitle">Your latest notifications</p></div></div>
                    {myNotifications.length === 0 ? <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: '14px', padding: '20px 0' }}>No new updates available.</p> : myNotifications.slice(0, 3).map((notif) => (<div key={notif.id} className="activity-item"><div className="activity-icon"><FaRegListAlt /></div><div style={{ flex: 1 }}><h4 style={{ margin: 0, color: '#1e293b', fontSize: '14px', fontWeight: '700' }}>{notif.title}</h4><p style={{ margin: 0, color: '#64748b', fontSize: '12px' }}>{notif.message}</p><span style={{ fontSize: '11px', color: '#94a3b8' }}>{notif.timestamp}</span></div><FaChevronRight style={{ color: '#cbd5e1' }} /></div>))}
                  </div>
                </div>
-
                <div className="dash-right">
                  <div className="dash-card">
                    <div className="dash-card-header"><div className="dash-card-icon" style={{ color: '#ef4444', background: '#fef2f2' }}><FaHeart /></div><div><h3 className="dash-card-title">Health Metrics</h3><p className="dash-card-subtitle">Latest readings</p></div></div>
@@ -344,14 +331,12 @@ function Dashboard() {
                        </div>
                      </div>
                    </div>
-
                    <div className="metric-row"><div className="metric-info"><FaHeart style={{ color: '#10b981', fontSize: '18px' }} /><div><h4>Blood Pressure</h4><h2>{userData?.healthMetrics?.bp || 'TBA'}</h2></div></div>{bpStatus ? <span style={{ background: '#f1f5f9', color: bpStatus.color, padding: '4px 10px', borderRadius: '15px', fontSize: '10px', fontWeight: 'bold' }}>{bpStatus.label}</span> : <span className="metric-badge">PENDING</span>}</div>
                    
                    <div className="metric-row"><div className="metric-info"><FaHeartbeat style={{ color: '#3b82f6', fontSize: '18px' }} /><div><h4>Heart Rate</h4><h2>{userData?.healthMetrics?.hr ? `${userData.healthMetrics.hr} bpm` : 'TBA'}</h2></div></div></div>
                    
                    <div className="metric-row"><div className="metric-info"><FaChartLine style={{ color: '#a855f7', fontSize: '18px' }} /><div><h4>BMI (Body Mass Index)</h4><h2>{bmiStatus ? bmiStatus.val : 'TBA'}</h2></div></div>{bmiStatus ? <span style={{ background: '#f1f5f9', color: bmiStatus.color, padding: '4px 10px', borderRadius: '15px', fontSize: '10px', fontWeight: 'bold' }}>{bmiStatus.label}</span> : <span className="metric-badge">PENDING</span>}</div>
                  </div>
-
                  <div className="info-card-green">
                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}><FaMapMarkerAlt style={{ fontSize: '20px' }} /><h3 style={{ margin: 0, fontSize: '16px' }}>Old Cabalan Health Center</h3></div>
                    <button onClick={() => window.open('https://maps.app.goo.gl/Zt2ABJNtpDLn7HodA', '_blank')} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', color: '#0bc25c', background: 'white', fontWeight: 'bold', cursor: 'pointer', display: 'flex', justifyContent: 'center', gap: '8px' }}><FaMapMarkerAlt /> Get Directions</button>
@@ -366,4 +351,3 @@ function Dashboard() {
 }
 
 export default Dashboard;
-

@@ -8,7 +8,7 @@ import {
   FaCheckCircle, FaExclamationTriangle, FaTrash, FaClock, FaFilter, 
   FaTimes, FaEye, FaIdBadge, FaChartBar, FaPrint, FaInfoCircle, 
   FaTimesCircle, FaUser, FaEnvelope, FaPhoneAlt, FaMapMarkerAlt,
-  FaStepForward, FaUndo, FaHeartbeat, FaBoxOpen, FaPlus, FaMinus, FaPills, FaStar, FaSave, FaFilePrescription, FaRegCalendarAlt, FaBell
+  FaStepForward, FaUndo, FaHeartbeat, FaBoxOpen, FaPlus, FaMinus, FaPills, FaStar, FaSave, FaRegCalendarAlt, FaBell
 } from 'react-icons/fa';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import './App.css';
@@ -17,7 +17,6 @@ function AdminDashboard() {
   const [appointments, setAppointments] = useState([]);
   const [usersData, setUsersData] = useState({});
   const [currentServing, setCurrentServing] = useState("None");
-  const [hasPreviousQueue, setHasPreviousQueue] = useState(false); 
   const [activeTab, setActiveTab] = useState('dashboard'); 
   
   const [recordFilter, setRecordFilter] = useState('All');
@@ -34,9 +33,8 @@ function AdminDashboard() {
   
   const [adminNotifications, setAdminNotifications] = useState([]);
   
-  // BAGO: State para sa pag-highlight ng row
+  // State para sa pag-highlight ng row
   const [highlightedAppId, setHighlightedAppId] = useState(null);
-
   const [showTimeModal, setShowTimeModal] = useState(false);
   const [timeModalData, setTimeModalData] = useState({ appId: '', patientId: '', queueNum: '' });
   const [selectedTime, setSelectedTime] = useState('');
@@ -46,10 +44,6 @@ function AdminDashboard() {
   
   const [showVitalsModal, setShowVitalsModal] = useState(false);
   const [vitalsData, setVitalsData] = useState({ patientId: '', name: '', bp: '', hr: '', weight: '', height: '' });
-  
-  const [showRxModal, setShowRxModal] = useState(false);
-  const [rxData, setRxData] = useState({ patientId: '', name: '', appId: '', meds: [] });
-  const [currentMed, setCurrentMed] = useState({ name: '', dosage: '', instructions: '', duration: '' });
   
   const [inventory, setInventory] = useState([]);
   const [lowStockCount, setLowStockCount] = useState(0); 
@@ -64,7 +58,6 @@ function AdminDashboard() {
   const [alertBox, setAlertBox] = useState({ show: false, message: '', type: 'info' });
   const [confirmBox, setConfirmBox] = useState({ show: false, message: '', onConfirm: null });
   const navigate = useNavigate();
-
   const showAlert = (message, type = 'info') => setAlertBox({ show: true, message, type });
   const showConfirm = (message, onConfirm) => setConfirmBox({ show: true, message, onConfirm });
 
@@ -90,7 +83,6 @@ function AdminDashboard() {
         });
       } else navigate('/');
     });
-
     onValue(ref(database, 'users'), (snapshot) => { if (snapshot.exists()) setUsersData(snapshot.val()); });
     onValue(ref(database, 'liveQueue/current'), (snapshot) => { if (snapshot.exists()) setCurrentServing(snapshot.val()); });
     
@@ -103,7 +95,6 @@ function AdminDashboard() {
           setAppointments([]);
       }
     });
-
     onValue(ref(database, 'inventory'), (snapshot) => {
       if (snapshot.exists()) {
         const list = Object.keys(snapshot.val()).map(key => ({ id: key, ...snapshot.val()[key] }));
@@ -114,14 +105,12 @@ function AdminDashboard() {
         setLowStockCount(0);
       }
     });
-
     onValue(ref(database, 'settings'), (snapshot) => {
       if (snapshot.exists()) {
         setClinicStatus(snapshot.val().status || 'Open');
         setClosedReason(snapshot.val().closedReason || '');
       }
     });
-
     return () => unsubscribe();
   }, [navigate]);
 
@@ -192,30 +181,6 @@ function AdminDashboard() {
     }).then(() => { setShowVitalsModal(false); showAlert("Vitals updated!", "success"); });
   };
 
-  const addMedToRx = () => {
-    if(!currentMed.name || !currentMed.dosage) return showAlert("Select Med and Dosage", "error");
-    setRxData({...rxData, meds: [...rxData.meds, currentMed]});
-    setCurrentMed({ name: '', dosage: '', instructions: '', duration: '' });
-  };
-  
-  const issuePrescription = () => {
-    if(rxData.meds.length === 0) return showAlert("No meds added.", "error");
-    push(ref(database, `prescriptions/${rxData.patientId}`), {
-        date: new Date().toLocaleDateString(),
-        assistedBy: "Admin / Duty Nurse",
-        assessment: "Routine Checkup", 
-        medications: rxData.meds,
-        status: "Active"
-    }).then(() => {
-        setShowRxModal(false);
-        showAlert("Prescription issued to patient!", "success");
-        rxData.meds.forEach(med => {
-            const invItem = inventory.find(i => i.itemName === med.name);
-            if(invItem) update(ref(database, `inventory/${invItem.id}`), { stock: invItem.stock - 1 });
-        });
-    });
-  };
-
   const handleSaveInventoryItem = (e) => {
     e.preventDefault();
     if (inventoryItem.id) {
@@ -257,7 +222,6 @@ function AdminDashboard() {
     .then(() => showAlert("Settings updated!", "success"));
   };
 
-  // BAGO: Clear Queue lang nang walang Undo Logic
   const handleClearQueue = () => {
     showConfirm("Are you sure you want to clear the daily queue?", () => {
       set(ref(database, 'liveQueue/current'), "None");
@@ -279,25 +243,20 @@ function AdminDashboard() {
     }
   };
 
-  // BAGO: Logic para hanapin yung app.id sa table at i-scroll/highlight
   const handleNotificationClick = (dateStr, appId) => {
     if(dateStr) {
       setQueueDateFilter(dateStr);
     }
     setActiveTab('dashboard');
-
     if(appId) {
       setHighlightedAppId(appId);
       
-      // Delay ng 0.5 sec para mabigyan ng oras mag-render ang bagong table date filter
       setTimeout(() => {
         const targetRow = document.getElementById(`row-${appId}`);
         if(targetRow) {
           targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
       }, 500);
-
-      // Tanggalin highlight after 3.5 seconds
       setTimeout(() => {
         setHighlightedAppId(null);
       }, 3500);
@@ -317,9 +276,8 @@ function AdminDashboard() {
       if (!a.isSkipped && b.isSkipped) return -1;
       return 0; 
     });
-
   const patientList = Object.keys(usersData).filter(uid => usersData[uid].role !== 'admin').map(uid => ({ id: uid, ...usersData[uid] }));
-
+  
   const processServiceData = () => {
     const counts = { 'Non-Senior/Non-PWD': 0, 'Senior Citizen': 0, 'Pregnant': 0, 'PWD': 0 };
     appointments.forEach(app => { if (counts[app.serviceType] !== undefined) counts[app.serviceType]++; });
@@ -334,7 +292,7 @@ function AdminDashboard() {
 
   const processPurokData = () => {
     const counts = {};
-    for (let i = 1; i <= 13; i++) counts[`Purok ${i}`] = 0;
+    for (let i = 1; i <= 15; i++) counts[`Purok ${i}`] = 0;
     appointments.forEach(app => {
       const patientPurok = usersData[app.patientId]?.purok;
       if (patientPurok && counts[patientPurok] !== undefined) counts[patientPurok]++;
@@ -351,41 +309,12 @@ function AdminDashboard() {
     if(bmi < 29.9) return { val: bmi, label: "Overweight", color: "#f59e0b" };
     return { val: bmi, label: "Obese", color: "#ef4444" };
   };
-
   const liveAdminBmi = computeLiveBMI(vitalsData.weight, vitalsData.height);
 
   return (
     <div style={{ display: 'flex', background: '#f4fbfa', minHeight: '100vh', fontFamily: "'Inter', sans-serif" }}>
       {alertBox.show && ( <div className="modal-overlay hide-on-print" style={{ zIndex: 9999 }}><div className="modern-register-card" style={{ maxWidth: '350px', textAlign: 'center', padding: '30px', background: '#ffffff' }}><div style={{ fontSize: '50px', marginBottom: '15px', color: alertBox.type === 'success' ? '#10b981' : '#ef4444' }}>{alertBox.type === 'success' ? <FaCheckCircle /> : <FaTimesCircle />}</div><h3 style={{ color: '#1e293b', marginBottom: '10px' }}>{alertBox.message}</h3><button onClick={() => setAlertBox({ show: false, message: '', type: 'info' })} className="btn-green-full" style={{ margin: 0 }}>OK</button></div></div> )}
       {confirmBox.show && ( <div className="modal-overlay hide-on-print" style={{ zIndex: 9999 }}><div className="modern-register-card" style={{ maxWidth: '400px', textAlign: 'center', padding: '30px', background: '#ffffff' }}><div style={{ fontSize: '50px', color: '#ef4444', marginBottom: '15px' }}><FaExclamationTriangle /></div><h3 style={{ color: '#1e293b', marginBottom: '10px' }}>{confirmBox.message}</h3><div style={{ display: 'flex', gap: '10px' }}><button onClick={() => setConfirmBox({ show: false, message: '', onConfirm: null })} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', background: 'white', color: '#64748b', fontWeight: 'bold', cursor: 'pointer' }}>Cancel</button><button onClick={() => { confirmBox.onConfirm(); setConfirmBox({ show: false, message: '', onConfirm: null }); }} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', background: '#0bc25c', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}>Yes</button></div></div></div> )}
-      
-      {showRxModal && (
-          <div className="modal-overlay hide-on-print" style={{ zIndex: 1000 }}>
-             <div className="modern-register-card" style={{ maxWidth: '500px', padding: '30px', position: 'relative' }}>
-                <button onClick={() => setShowRxModal(false)} style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '20px', cursor: 'pointer' }}><FaTimes /></button>
-                <h2 style={{ color: '#1e293b', margin: '0 0 5px 0', fontSize: '20px', fontWeight: '800' }}>Issue Prescription</h2>
-                <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '20px' }}>Patient: {rxData.name}</p>
-                <div style={{ border: '1px solid #e2e8f0', padding: '15px', borderRadius: '8px', marginBottom: '20px', background: '#f8fafc' }}>
-                   {rxData.meds.map((m, i) => <div key={i} style={{fontSize:'13px', marginBottom:'5px'}}>• <strong>{m.name}</strong> ({m.dosage})</div>)}
-                   {rxData.meds.length === 0 && <span style={{fontSize:'12px', color:'#94a3b8'}}>No meds added yet.</span>}
-                </div>
-                <div className="modern-group" style={{ marginBottom: '10px' }}>
-                   <label style={{ fontSize: '11px', fontWeight: 'bold' }}>MEDICINE</label>
-                   <select value={currentMed.name} onChange={(e)=>setCurrentMed({...currentMed, name: e.target.value})} className="modern-input">
-                       <option value="">Select from inventory...</option>
-                       {inventory.filter(i => i.stock > 0).map(i => <option key={i.id} value={i.itemName}>{i.itemName} (Stock: {i.stock})</option>)}
-                   </select>
-                </div>
-                <div style={{ display:'flex', gap:'10px', marginBottom:'15px' }}>
-                    <div className="modern-group" style={{ flex: 1, marginBottom: 0 }}><input type="text" placeholder="Dosage (e.g. 1 Tablet)" value={currentMed.dosage} onChange={(e)=>setCurrentMed({...currentMed, dosage: e.target.value})} className="modern-input" /></div>
-                    <div className="modern-group" style={{ flex: 1, marginBottom: 0 }}><input type="text" placeholder="Duration (e.g. 7 days)" value={currentMed.duration} onChange={(e)=>setCurrentMed({...currentMed, duration: e.target.value})} className="modern-input" /></div>
-                </div>
-                <div className="modern-group" style={{ marginBottom: '15px' }}><input type="text" placeholder="Instructions (e.g. After meals)" value={currentMed.instructions} onChange={(e)=>setCurrentMed({...currentMed, instructions: e.target.value})} className="modern-input" /></div>
-                <button onClick={addMedToRx} style={{ width: '100%', padding:'10px', background:'#e2e8f0', color:'#475569', fontWeight:'bold', border:'none', borderRadius:'8px', marginBottom:'15px', cursor:'pointer' }}>+ Add to List</button>
-                <button onClick={issuePrescription} className="btn-green-full" style={{ background: '#a855f7', marginTop:0 }}><FaFilePrescription/> Submit Prescription</button>
-             </div>
-          </div>
-      )}
       
       {showVitalsModal && (
         <div className="modal-overlay hide-on-print" style={{ zIndex: 1000 }}>
@@ -408,7 +337,6 @@ function AdminDashboard() {
           </div>
         </div>
       )}
-
       {showTimeModal && (
          <div className="modal-overlay hide-on-print" style={{ zIndex: 1000 }}>
          <div className="modern-register-card" style={{ maxWidth: '400px', padding: '30px', position: 'relative' }}>
@@ -420,7 +348,6 @@ function AdminDashboard() {
          </div>
        </div>
       )}
-
       {showInventoryModal && (
         <div className="modal-overlay hide-on-print" style={{ zIndex: 1000 }}>
           <div className="modern-register-card" style={{ maxWidth: '400px', padding: '30px', position: 'relative' }}>
@@ -435,7 +362,6 @@ function AdminDashboard() {
           </div>
         </div>
       )}
-
       {showStockModal && (
         <div className="modal-overlay hide-on-print" style={{ zIndex: 1000 }}>
           <div className="modern-register-card" style={{ maxWidth: '400px', padding: '30px', position: 'relative' }}>
@@ -448,7 +374,6 @@ function AdminDashboard() {
           </div>
         </div>
       )}
-
       {showPatientModal && selectedPatient && (
         <div className="modal-overlay hide-on-print" style={{ zIndex: 1000 }}>
           <div className="modern-register-card" style={{ maxWidth: '600px', padding: '40px', position: 'relative' }}>
@@ -470,7 +395,6 @@ function AdminDashboard() {
           </div>
         </div>
       )}
-
       <div className="hide-on-print" style={{ width: '260px', background: '#ffffff', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', position: 'fixed', height: '100vh', top: 0, left: 0 }}>
         <div style={{ padding: '30px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ background: '#0bc25c', color: 'white', padding: '10px', borderRadius: '10px', fontSize: '20px' }}><FaUserShield /></div>
@@ -484,20 +408,17 @@ function AdminDashboard() {
               <div style={{display:'flex', alignItems:'center', gap:'12px'}}><FaBoxOpen /> Inventory</div>
               {lowStockCount > 0 && <span style={{background:'#ef4444', color:'white', fontSize:'10px', padding:'2px 6px', borderRadius:'10px', fontWeight:'bold'}}>{lowStockCount}</span>}
           </li>
-
           {/* NOTIFICATIONS TAB */}
           <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '15px', transition: '0.2s', ...getTabStyle('notifications') }} onClick={() => setActiveTab('notifications')}>
               <div style={{display:'flex', alignItems:'center', gap:'12px'}}><FaBell /> Notifications</div>
               {adminNotifications.length > 0 && <span style={{background:'#ef4444', color:'white', fontSize:'10px', padding:'2px 6px', borderRadius:'10px', fontWeight:'bold'}}>{adminNotifications.length}</span>}
           </li>
-
           <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', transition: '0.2s', ...getTabStyle('feedback') }} onClick={() => setActiveTab('feedback')}><FaStar /> Patient Feedback</li>
           <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', transition: '0.2s', ...getTabStyle('analytics') }} onClick={() => setActiveTab('analytics')}><FaChartBar /> Reports & Analytics</li>
           <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', transition: '0.2s', ...getTabStyle('settings') }} onClick={() => setActiveTab('settings')}><FaCog /> Settings</li>
         </ul>
         <div onClick={handleLogout} style={{ padding: '20px 25px', borderTop: '1px solid #f1f5f9', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: '#ef4444', fontWeight: 'bold', fontSize: '15px' }}><FaSignOutAlt /> Logout</div>
       </div>
-
       <div className="printable-area" style={{ flex: 1, marginLeft: '260px', padding: '40px' }}>
         
         <div className="hide-on-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
@@ -509,7 +430,6 @@ function AdminDashboard() {
             {activeTab === 'settings' && <button onClick={handleSaveSettings} className="btn-green-full" style={{ width: 'auto', padding: '10px 20px', margin:0 }}><FaSave/> Save Settings</button>}
           </div>
         </div>
-
         {/* ADMIN NOTIFICATIONS VIEW TABS */}
         {activeTab === 'notifications' && (
           <div className="dash-card" style={{ padding: '0', overflow: 'hidden' }}>
@@ -547,7 +467,6 @@ function AdminDashboard() {
             </div>
           </div>
         )}
-
         {activeTab === 'dashboard' && (
           <>
             <div className="dash-hero" style={{ marginBottom: '30px', textAlign: 'center', padding: '40px' }}>
@@ -566,7 +485,6 @@ function AdminDashboard() {
                       <input type="date" value={queueDateFilter} onChange={(e) => setQueueDateFilter(e.target.value)} className="modern-input" style={{ padding: '8px 12px', background: 'white' }} />
                     </div>
                   </div>
-
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <FaFilter color="#94a3b8" />
                     <select value={queueFilter} onChange={(e) => setQueueFilter(e.target.value)} className="modern-input" style={{ padding: '8px 12px', background: 'white' }}>
@@ -577,7 +495,6 @@ function AdminDashboard() {
                       <option value="PWD">PWD</option>
                     </select>
                   </div>
-
                 </div>
               </div>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
@@ -592,7 +509,6 @@ function AdminDashboard() {
                   {activeQueue.length === 0 ? <tr><td colSpan="3" style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No patients in queue for this date.</td></tr> :
                     activeQueue.map((app) => (
                       app.status === 'cancelled' ? (
-                        // BAGO: IDinagdag ang id={row-app.id} at Dynamic Background para sa highlight
                         <tr id={`row-${app.id}`} key={app.id} style={{ borderBottom: '1px solid #f1f5f9', background: highlightedAppId === app.id ? '#dcfce7' : '#fef2f2', transition: 'background-color 0.5s ease' }}>
                           <td style={{ padding: '20px 25px' }}>
                             <strong style={{ color: '#ef4444', fontSize: '20px', display: 'block' }}>{app.queueNumber}</strong>
@@ -608,7 +524,6 @@ function AdminDashboard() {
                           </td>
                         </tr>
                       ) : (
-                        // BAGO: IDinagdag ang id={row-app.id} at Dynamic Background para sa highlight
                         <tr id={`row-${app.id}`} key={app.id} style={{ borderBottom: '1px solid #f1f5f9', background: highlightedAppId === app.id ? '#dcfce7' : (app.isSkipped ? '#fef2f2' : 'white'), transition: 'background-color 0.5s ease' }}>
                           <td style={{ padding: '20px 25px' }}>
                             <strong style={{ color: app.isSkipped ? '#ef4444' : '#0bc25c', fontSize: '20px', display: 'block' }}>{app.queueNumber}</strong>
@@ -633,7 +548,6 @@ function AdminDashboard() {
                                   <button onClick={() => skipPatient(app.id, app.patientId, app.queueNumber)} style={{ background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}><FaStepForward /> Skip</button>
                                 </>
                               )}
-                              <button onClick={() => { setRxData({ patientId: app.patientId, name: usersData[app.patientId]?.fullName, appId: app.id, meds: [] }); setShowRxModal(true); }} style={{ background: '#fdf4ff', color: '#a855f7', border: '1px solid #f3e8ff', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}><FaFilePrescription /> Rx</button>
                               <button onClick={() => markCompleted(app.id)} style={{ background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}><FaCheckCircle /> Done</button>
                             </div>
                           </td>
@@ -646,8 +560,6 @@ function AdminDashboard() {
             </div>
           </>
         )}
-
-        {/* ... (OTHER TABS - Vitals, Inventory, Records, Feedback, Analytics, Settings - REMAINS IDENTICAL) ... */}
         {activeTab === 'vitals' && (
           <div className="dash-card" style={{ padding: '0', overflow: 'hidden' }}>
              <div style={{ padding: '20px 25px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}><h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Registered Patients Vitals</h3></div>
@@ -665,7 +577,6 @@ function AdminDashboard() {
               </table>
           </div>
         )}
-
         {activeTab === 'inventory' && (
           <div className="dash-card" style={{ padding: '0', overflow: 'hidden' }}>
              <div style={{ padding: '20px 25px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}><h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Health Center Supplies</h3></div>
@@ -691,7 +602,6 @@ function AdminDashboard() {
               </table>
           </div>
         )}
-
         {activeTab === 'records' && (
           <div className="dash-card" style={{ padding: '0', overflow: 'hidden' }}>
              <div style={{ padding: '20px 25px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -713,7 +623,6 @@ function AdminDashboard() {
               </table>
           </div>
         )}
-
         {activeTab === 'feedback' && (() => {
           const feedbackList = appointments.filter(app => app.feedbackSubmitted && app.rating > 0);
           const filteredFeedback = ratingFilter === 'All' ? feedbackList : feedbackList.filter(app => app.rating === parseInt(ratingFilter));
@@ -748,7 +657,6 @@ function AdminDashboard() {
             </div>
           );
         })()}
-
         {activeTab === 'analytics' && (
           <div>
             <div className="print-header" style={{ display: 'none', textAlign: 'center', marginBottom: '30px' }}><h2>Old Cabalan Health Center</h2><p>MediQueue System Analytics Report</p><p>Generated on: {new Date().toLocaleDateString()}</p><hr /></div>
@@ -762,7 +670,6 @@ function AdminDashboard() {
             </div>
           </div>
         )}
-
         {activeTab === 'settings' && (
           <div className="hide-on-print">
             <div className="dash-card" style={{ marginBottom: '20px', padding: '30px' }}>
@@ -782,7 +689,9 @@ function AdminDashboard() {
               )}
             </div>
             <div className="dash-card" style={{ borderLeft: '5px solid #3b82f6', padding: '30px' }}>
-              <h3 style={{ color: '#3b82f6', margin: '0 0 15px 0', fontSize: '18px' }}>System Actions</h3>
+              <h3 style={{ color: '#3b82f6', margin: '0 0 15px 0', fontSize: '18px'
+                
+               }}>System Actions</h3>
               <div style={{ display: 'flex', alignItems: 'center', gap: '20px', background: '#eff6ff', padding: '20px', borderRadius: '8px' }}>
                 <div style={{ flex: 1 }}><h4 style={{ color: '#1e293b', margin: '0 0 5px 0' }}>Clear Daily Queue</h4><p style={{ color: '#64748b', margin: 0, fontSize: '13px' }}>Clear the currently serving number to prepare for a new day.</p></div>  
                 <button onClick={handleClearQueue} className="btn-green-full" style={{ width: 'auto', background: '#ef4444', padding: '12px 25px', margin:0 }}><FaTrash /> Clear Queue</button>
@@ -790,10 +699,8 @@ function AdminDashboard() {
             </div>
           </div>
         )}
-
       </div>
     </div>
   );
 }
-
 export default AdminDashboard;

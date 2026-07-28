@@ -137,12 +137,13 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
             <input type="text" className="modern-input" placeholder="123 Main Street, Old Cabalan" value={address} onChange={(e) => setAddress(e.target.value)} required />
           </div>
 
-          {/* SINGLE ROW: Purok */}
+       {/* SINGLE ROW: Purok */}
           <div className="modern-group" style={{ marginBottom: '20px' }}>
              <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b' }}><FaMapMarkerAlt /> Purok</label>
             <select className="modern-input" value={purok} onChange={(e) => setPurok(e.target.value)} required>
               <option value="" disabled>Select your purok</option>
-              {[...Array(13)].map((_, i) => (
+              {/* BINAGO: Mula Array(13), ginawa nating Array(15) */}
+              {[...Array(15)].map((_, i) => (
                 <option key={i+1} value={`Purok ${i+1}`}>Purok {i+1}</option>
               ))}
             </select>
