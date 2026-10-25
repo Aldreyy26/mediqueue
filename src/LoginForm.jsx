@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaTimes, FaEnvelope, FaLock, FaUser, FaUserShield, FaEye, FaEyeSlash } from 'react-icons/fa';
+import { FaTimes, FaEnvelope, FaLock, FaEye, FaEyeSlash } from 'react-icons/fa';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { ref, get } from 'firebase/database';
 import { auth, database } from './firebase';
@@ -8,46 +8,33 @@ import { auth, database } from './firebase';
 function LoginForm({ onClose, onSwitchToRegister }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loginAs, setLoginAs] = useState('Resident');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  
-  // BAGO: Show Password State
   const [showPassword, setShowPassword] = useState(false);
-
+  
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
+
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
-
+      
+      // Kunin ang role ng user mula sa Firebase Database
       const userRef = ref(database, `users/${user.uid}/role`);
       const snapshot = await get(userRef);
       const userRole = snapshot.exists() ? snapshot.val() : 'resident';
 
-      // STRICT SECURITY CHECK
-      if (loginAs === 'Admin' && userRole !== 'admin') {
-        setError('Access Denied: You do not have Admin privileges.');
-        auth.signOut();
-        setIsLoading(false);
-        return;
-      }
-      if (loginAs === 'Resident' && userRole === 'admin') {
-        setError('Notice: You are an Admin. Please select the Admin tab to log in.');
-        auth.signOut();
-        setIsLoading(false);
-        return;
-      }
-
-      // Successful Login Route
+      // AUTOMATIC ROLE-BASED ROUTING (Handa na rin para sa Doctor account)
       if (userRole === 'admin') {
         navigate('/admin');
+      } else if (userRole === 'doctor') {
+        navigate('/doctor');
       } else {
-        navigate('/dashboard');
+        navigate('/dashboard'); // Para sa mga residents
       }
 
     } catch (err) {
@@ -56,7 +43,6 @@ function LoginForm({ onClose, onSwitchToRegister }) {
     }
   };
 
-  // BAGO: Forgot Password Function
   const handleForgotPassword = async () => {
     if (!email) {
       setError("Please type your email address in the box first, then click 'Forgot Password'.");
@@ -74,11 +60,8 @@ function LoginForm({ onClose, onSwitchToRegister }) {
   return (
     <div className="modal-overlay">
       <div className="modern-register-card" style={{ maxWidth: '500px', width: '90%' }}>
-
-        {/* Close Button */}
         <button className="close-btn" onClick={onClose}><FaTimes /></button>
-
-        {/* Header */}
+        
         <div className="modern-header-green">
           <div className="modern-logo-box">
             <img src="https://cdn-icons-png.flaticon.com/512/2966/2966327.png" alt="Logo" style={{ width: '35px' }} />
@@ -90,29 +73,11 @@ function LoginForm({ onClose, onSwitchToRegister }) {
         </div>
 
         <div className="modern-form-body">
-          {/* Role Toggle for Admin/Resident */}
-          <div className="modern-role-toggle" style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-            <button
-              type="button"
-              className={loginAs === 'Resident' ? 'modern-role-btn active' : 'modern-role-btn'}
-              onClick={() => setLoginAs('Resident')}
-              style={{ flex: 1, padding: '10px', borderRadius: '8px', cursor: 'pointer' }}
-            >
-              <FaUser /> Resident
-            </button>
-            <button
-              type="button"
-              className={loginAs === 'Admin' ? 'modern-role-btn active' : 'modern-role-btn'}
-              onClick={() => setLoginAs('Admin')}
-              style={{ flex: 1, padding: '10px', borderRadius: '8px', cursor: 'pointer' }}
-            >
-              <FaUserShield /> Admin
-            </button>
-          </div>
-
+          {/* TINANGGAL NA ANG ROLE TOGGLE DITO PARA SECURE AT AUTOMATIC */}
+          
           <form onSubmit={handleLogin}>
             {error && <div className="error-message" style={{ background: '#fef2f2', color: '#ef4444', padding: '12px', borderRadius: '8px', marginBottom: '15px', fontWeight: 'bold', fontSize: '13px' }}>{error}</div>}
-
+            
             <div className="modern-group" style={{ marginBottom: '18px' }}>
               <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '5px' }}>EMAIL ADDRESS</label>
               <div style={{ position: 'relative' }}>
@@ -142,7 +107,6 @@ function LoginForm({ onClose, onSwitchToRegister }) {
                   style={{ paddingLeft: '40px', paddingRight: '40px', width: '100%', boxSizing: 'border-box' }}
                   required
                 />
-                {/* EYE ICON TOGGLE */}
                 <span 
                   onClick={() => setShowPassword(!showPassword)} 
                   style={{ position: 'absolute', top: '14px', right: '15px', cursor: 'pointer', color: '#94a3b8' }}
@@ -170,7 +134,6 @@ function LoginForm({ onClose, onSwitchToRegister }) {
           <div className="modern-footer" style={{ textAlign: 'center', marginTop: '20px', fontSize: '14px', color: '#64748b' }}>
             Don't have an account? <span onClick={onSwitchToRegister} style={{ color: '#0bc25c', fontWeight: 'bold', cursor: 'pointer' }}>Sign Up</span>
           </div>
-
         </div>
       </div>
     </div>

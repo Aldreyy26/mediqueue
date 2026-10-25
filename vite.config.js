@@ -8,10 +8,9 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
-      // TINANGGAL NA NATIN ANG devOptions DITO DAHIL PAN-LOCALHOST LANG YUN
       manifest: {
-        name: 'Old Cabalan Health App',
-        short_name: 'CabalanHealth',
+        name: 'MediQueue: Old Cabalan Health', // BAGO
+        short_name: 'MediQueue', // BAGO
         description: 'Digital portal and queuing system for Old Cabalan Health Center',
         theme_color: '#0bc25c',
         background_color: '#f8fafc',
