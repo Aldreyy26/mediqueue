@@ -72,22 +72,44 @@ function DoctorDashboard() {
 
   const handleLogout = () => signOut(auth).then(() => navigate('/'));
 
+  const activeQueue = appointments
+    .filter(app => queueDateFilter === '' || app.appointmentDate === queueDateFilter) 
+    .filter(app => app.status === 'pending')
+    .sort((a, b) => {
+      if (a.isSkipped && !b.isSkipped) return 1;
+      if (!a.isSkipped && b.isSkipped) return -1;
+      return 0; 
+    });
+
   const callPatient = (app) => {
     set(ref(database, 'liveQueue/current'), app.queueNumber);
     update(ref(database, `appointments/${app.id}`), { queueStage: 'In Consultation', isSkipped: false });
     push(ref(database, `notifications/${app.patientId}`), { 
-      title: "IN CONSULTATION!", 
-      message: `Queue ${app.queueNumber}, the Doctor is ready for you in the Consultation Room.`, 
+      title: "IT'S YOUR TURN!", 
+      message: `Queue ${app.queueNumber}, please proceed to the Doctor's Consultation Room.`, 
       timestamp: new Date().toLocaleString() 
     });
-    showAlert(`Called ${app.queueNumber} (In Consultation)!`, "success");
+
+    // Notify patient who is 2 numbers away
+    const waitingList = activeQueue.filter(a => !a.isSkipped);
+    const currentIndex = waitingList.findIndex(a => a.id === app.id);
+    if (currentIndex !== -1 && waitingList[currentIndex + 2]) {
+      const twoAwayAppt = waitingList[currentIndex + 2];
+      push(ref(database, `notifications/${twoAwayAppt.patientId}`), {
+        title: "HEADS UP: 2 NUMBERS AWAY!",
+        message: `Queue ${twoAwayAppt.queueNumber} — Currently Serving: ${app.queueNumber}. You are 2 numbers away, please prepare to proceed to the health center.`,
+        timestamp: new Date().toLocaleString()
+      });
+    }
+
+    showAlert(`Called ${app.queueNumber}!`, "success");
   };
 
   const markNoShow = (app) => {
     update(ref(database, `appointments/${app.id}`), { isSkipped: true, queueStage: 'No Show' });
     push(ref(database, `notifications/${app.patientId}`), { 
-      title: "Marked as No Show", 
-      message: `Queue ${app.queueNumber} was marked as No Show. Please approach the triage desk if you are still at the clinic.`, 
+      title: "Missed Turn", 
+      message: `Queue ${app.queueNumber} was marked as No Show.`, 
       timestamp: new Date().toLocaleString() 
     });
     showAlert(`${app.queueNumber} marked as No Show.`, "info");
@@ -127,7 +149,7 @@ function DoctorDashboard() {
     const currentRx = consultData.prescription ? consultData.prescription + '\n' : '';
     setConsultData({
       ...consultData,
-      prescription: `${currentRx}• ${item.itemName} (${item.category}) - Dispensed 1 pack/course (Take as directed)`
+      prescription: `${currentRx}• ${item.itemName} - 1 pack/course (Take as directed)`
     });
     setDispensedMeds(prev => [...prev, item]);
   };
@@ -136,7 +158,6 @@ function DoctorDashboard() {
     e.preventDefault();
     const patientName = usersData[consultData.patientId]?.fullName || "Resident";
 
-    // Update Cloud EMR Record
     update(ref(database, `appointments/${consultData.appId}`), { 
       status: "completed",
       queueStage: "Completed",
@@ -145,7 +166,6 @@ function DoctorDashboard() {
       followUpDate: consultData.followUpDate || null,
       consultedAt: new Date().toLocaleString()
     }).then(() => {
-      // Automatically log dispensed medicines & deduct stock in Inventory
       dispensedMeds.forEach(med => {
         const newStock = Math.max(0, Number(med.stock) - 1);
         update(ref(database, `inventory/${med.id}`), { stock: newStock });
@@ -161,23 +181,14 @@ function DoctorDashboard() {
       });
 
       push(ref(database, `notifications/${consultData.patientId}`), {
-        title: "Cloud EMR Consultation Completed",
-        message: `Your consultation is complete. View your Digital Health Passport for your prescription${consultData.followUpDate ? ` and follow-up on ${consultData.followUpDate}` : ''}.`,
+        title: "Consultation Completed",
+        message: `Your medical consultation is complete. View your History tab for your diagnosis and prescription.`,
         timestamp: new Date().toLocaleString()
       });
       setShowConsultModal(false);
-      showAlert("Cloud EMR saved & medicine distribution logged!", "success");
+      showAlert("Consultation completed and saved!", "success");
     });
   };
-
-  const activeQueue = appointments
-    .filter(app => queueDateFilter === '' || app.appointmentDate === queueDateFilter) 
-    .filter(app => app.status === 'pending')
-    .sort((a, b) => {
-      if (a.isSkipped && !b.isSkipped) return 1;
-      if (!a.isSkipped && b.isSkipped) return -1;
-      return 0; 
-    });
 
   const completedRecords = appointments.filter(app => app.status === 'completed');
   const patientPastHistory = appointments.filter(app => app.patientId === consultData.patientId && app.status === 'completed' && app.id !== consultData.appId);
@@ -189,32 +200,28 @@ function DoctorDashboard() {
     <div style={{ display: 'flex', background: '#f8fafc', minHeight: '100vh', fontFamily: "'Inter', sans-serif" }}>
       {alertBox.show && ( <div className="modal-overlay" style={{ zIndex: 9999 }}><div className="modern-register-card" style={{ maxWidth: '350px', textAlign: 'center', padding: '30px', background: '#ffffff' }}><div style={{ fontSize: '50px', marginBottom: '15px', color: alertBox.type === 'success' ? '#10b981' : '#ef4444' }}>{alertBox.type === 'success' ? <FaCheckCircle /> : <FaTimesCircle />}</div><h3 style={{ color: '#1e293b', marginBottom: '10px' }}>{alertBox.message}</h3><button onClick={() => setAlertBox({ show: false, message: '', type: 'info' })} className="btn-green-full" style={{ background: '#3b82f6', margin: 0 }}>OK</button></div></div> )}
       
-      {/* CLOUD ELECTRONIC MEDICAL RECORD (EMR) MODAL */}
       {showConsultModal && (
         <div className="modal-overlay" style={{ zIndex: 1000 }}>
-          <div className="modern-register-card modern-scrollable-card" style={{ maxWidth: '680px', padding: '30px', position: 'relative' }}>
+          <div className="modern-register-card modern-scrollable-card" style={{ maxWidth: '650px', padding: '30px', position: 'relative' }}>
             <button onClick={() => setShowConsultModal(false)} style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '20px', cursor: 'pointer' }}><FaTimesCircle /></button>
             <div style={{ marginBottom: '15px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
-              <h2 style={{ color: '#1e293b', margin: '0 0 5px 0', fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}><FaStethoscope color="#3b82f6"/> Cloud Electronic Medical Record (EMR)</h2>
+              <h2 style={{ color: '#1e293b', margin: '0 0 5px 0', fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}><FaStethoscope color="#3b82f6"/> Medical Consultation</h2>
               <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>
-                Queue: <strong style={{color: '#1e293b'}}>{consultData.queueNum}</strong> | Patient: <strong style={{color: '#1e293b'}}>{currentPatientObj.fullName}</strong> ({currentPatientObj.idType || 'ID'}: {currentPatientObj.idNumber || 'Verified'})
+                Queue: <strong style={{color: '#1e293b'}}>{consultData.queueNum}</strong> | Patient: <strong style={{color: '#1e293b'}}>{currentPatientObj.fullName}</strong>
               </p>
-              <div style={{ display: 'inline-block', marginTop: '8px', fontSize: '11px', background: '#f0fdf4', color: '#16a34a', padding: '4px 8px', borderRadius: '4px', border: '1px solid #bbf7d0', fontWeight: 'bold' }}>🔒 AES-256 Encrypted Cloud Registry</div>
             </div>
 
-            {/* DIGITAL HEALTH PASSPORT SUMMARY */}
             <div style={{ background: '#eff6ff', padding: '12px 15px', borderRadius: '8px', marginBottom: '12px', border: '1px solid #bfdbfe', fontSize: '12px', color: '#1e3a8a' }}>
-              <strong style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}><FaIdCard /> Digital Health Passport Profile:</strong>
+              <strong style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}><FaIdCard /> Patient Health Passport:</strong>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-                <div><strong>Allergies:</strong> {currentPatientObj.healthPassport?.allergies || 'None reported'}</div>
+                <div><strong>Allergies:</strong> {currentPatientObj.healthPassport?.allergies || 'None'}</div>
                 <div><strong>Vaccines:</strong> {currentPatientObj.healthPassport?.immunizations || 'Standard'}</div>
                 <div><strong>History:</strong> {currentPatientObj.healthPassport?.medicalHistory || 'None'}</div>
               </div>
             </div>
 
-            {/* RECORDED VITALS */}
             <div style={{ background: '#f0fdf4', padding: '12px 15px', borderRadius: '8px', marginBottom: '12px', border: '1px solid #bbf7d0' }}>
-              <h4 style={{ margin: '0 0 8px 0', fontSize: '12px', color: '#16a34a', display: 'flex', alignItems: 'center', gap: '5px' }}><FaHeartbeat /> Recorded Triage Vital Signs</h4>
+              <h4 style={{ margin: '0 0 8px 0', fontSize: '12px', color: '#16a34a', display: 'flex', alignItems: 'center', gap: '5px' }}><FaHeartbeat /> Recorded Vital Signs</h4>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', fontSize: '12px' }}>
                 <div><strong>BP:</strong> {currentPatientObj.healthMetrics?.bp || 'N/A'}</div>
                 <div><strong>HR:</strong> {currentPatientObj.healthMetrics?.hr || 'N/A'} bpm</div>
@@ -225,14 +232,14 @@ function DoctorDashboard() {
               </div>
               {currentPatientObj.healthMetrics?.conditions && (
                 <div style={{ marginTop: '8px', padding: '6px 10px', background: '#fef2f2', color: '#ef4444', borderRadius: '5px', fontSize: '12px', fontWeight: 'bold' }}>
-                  ⚠️ Special Condition Alert: {decryptData(currentPatientObj.healthMetrics.conditions)}
+                  ⚠️ Condition Alert: {decryptData(currentPatientObj.healthMetrics.conditions)}
                 </div>
               )}
             </div>
 
             {patientPastHistory.length > 0 && (
               <div style={{ background: '#f8fafc', padding: '10px 15px', borderRadius: '8px', marginBottom: '12px', border: '1px solid #e2e8f0' }}>
-                <h4 style={{ margin: '0 0 6px 0', fontSize: '12px', color: '#475569', display: 'flex', alignItems: 'center', gap: '5px' }}><FaHistory /> Past Visit Logs ({patientPastHistory.length})</h4>
+                <h4 style={{ margin: '0 0 6px 0', fontSize: '12px', color: '#475569', display: 'flex', alignItems: 'center', gap: '5px' }}><FaHistory /> Previous Visits ({patientPastHistory.length})</h4>
                 <div style={{ maxHeight: '75px', overflowY: 'auto', fontSize: '12px', color: '#64748b' }}>
                   {patientPastHistory.map(h => (
                     <div key={h.id} style={{ marginBottom: '4px' }}>
@@ -245,13 +252,13 @@ function DoctorDashboard() {
 
             <form onSubmit={handleCompleteConsultation}>
               <div className="modern-group" style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: '12px', fontWeight: 'bold' }}>CONSULTATION NOTES & CLINICAL DIAGNOSIS *</label>
-                <textarea value={consultData.diagnosis} onChange={(e) => setConsultData({...consultData, diagnosis: e.target.value})} className="modern-input" rows="2" required placeholder="Enter clinical findings and diagnosis..."></textarea>
+                <label style={{ fontSize: '12px', fontWeight: 'bold' }}>DIAGNOSIS / ASSESSMENT *</label>
+                <textarea value={consultData.diagnosis} onChange={(e) => setConsultData({...consultData, diagnosis: e.target.value})} className="modern-input" rows="2" required placeholder="Enter doctor's medical assessment..."></textarea>
               </div>
 
               {inventory.filter(i => i.stock > 0).length > 0 && (
                 <div style={{ marginBottom: '10px' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '6px' }}><FaPills /> CLICK TO DISPENSE & LINK TO INVENTORY DISTRIBUTION LOG:</span>
+                  <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '6px' }}><FaPills /> QUICK ADD AVAILABLE MEDICINE:</span>
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                     {inventory.filter(i => i.stock > 0).map(item => (
                       <button 
@@ -268,16 +275,16 @@ function DoctorDashboard() {
               )}
 
               <div className="modern-group" style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: '12px', fontWeight: 'bold' }}>PRESCRIBED MAINTENANCE MEDICINES & INSTRUCTIONS</label>
-                <textarea value={consultData.prescription} onChange={(e) => setConsultData({...consultData, prescription: e.target.value})} className="modern-input" rows="2" placeholder="Enter prescribed medicines and dosage..."></textarea>
+                <label style={{ fontSize: '12px', fontWeight: 'bold' }}>PRESCRIPTION / RECOMMENDATION</label>
+                <textarea value={consultData.prescription} onChange={(e) => setConsultData({...consultData, prescription: e.target.value})} className="modern-input" rows="2" placeholder="Enter medicines or home care instructions..."></textarea>
               </div>
 
               <div className="modern-group" style={{ marginBottom: '20px' }}>
-                <label style={{ fontSize: '12px', fontWeight: 'bold' }}><FaRegCalendarAlt /> SCHEDULED FOLLOW-UP DATE (OPTIONAL)</label>
+                <label style={{ fontSize: '12px', fontWeight: 'bold' }}><FaRegCalendarAlt /> FOLLOW-UP DATE (OPTIONAL)</label>
                 <input type="date" value={consultData.followUpDate} onChange={(e) => setConsultData({...consultData, followUpDate: e.target.value})} className="modern-input" min={getLocalDate()} />
               </div>
 
-              <button type="submit" className="btn-green-full" style={{ background: '#3b82f6' }}>Save Encrypted Cloud EMR & Complete</button>
+              <button type="submit" className="btn-green-full" style={{ background: '#3b82f6' }}>Complete Consultation</button>
             </form>
           </div>
         </div>
@@ -286,18 +293,18 @@ function DoctorDashboard() {
       <div style={{ width: '260px', background: '#ffffff', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', position: 'fixed', height: '100vh', top: 0, left: 0 }}>
         <div style={{ padding: '30px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ background: '#3b82f6', color: 'white', padding: '10px', borderRadius: '10px', fontSize: '20px' }}><FaUserMd /></div>
-          <div><h2 style={{ margin: 0, fontSize: '16px', color: '#1e293b', fontWeight: '800' }}>Doctor EMR</h2><p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>Old Cabalan Health</p></div>
+          <div><h2 style={{ margin: 0, fontSize: '16px', color: '#1e293b', fontWeight: '800' }}>Doctor Panel</h2><p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>Old Cabalan Health</p></div>
         </div>
         <ul style={{ listStyle: 'none', padding: '20px 0', margin: 0, flex: 1 }}>
-          <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', transition: '0.2s', ...getTabStyle('consultation') }} onClick={() => setActiveTab('consultation')}><FaStethoscope /> Patient Queue Board</li>
-          <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', transition: '0.2s', ...getTabStyle('records') }} onClick={() => setActiveTab('records')}><FaClipboardList /> Cloud EMR Registry</li>
+          <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', transition: '0.2s', ...getTabStyle('consultation') }} onClick={() => setActiveTab('consultation')}><FaStethoscope /> Consultation Queue</li>
+          <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', transition: '0.2s', ...getTabStyle('records') }} onClick={() => setActiveTab('records')}><FaClipboardList /> Patient Records</li>
         </ul>
         <div onClick={handleLogout} style={{ padding: '20px 25px', borderTop: '1px solid #f1f5f9', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: '#ef4444', fontWeight: 'bold', fontSize: '15px' }}><FaSignOutAlt /> Logout</div>
       </div>
       
       <div style={{ flex: 1, marginLeft: '260px', padding: '40px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
-          <h2 style={{ color: '#1e293b', margin: '0 0 5px 0', fontSize: '24px', fontWeight: '800' }}>{activeTab === 'consultation' ? 'Physician Consultation Queue' : 'Encrypted Cloud EMR Registry'}</h2>
+          <h2 style={{ color: '#1e293b', margin: '0 0 5px 0', fontSize: '24px', fontWeight: '800' }}>{activeTab === 'consultation' ? 'Patient Queue' : 'Completed Consultations'}</h2>
         </div>
 
         {activeTab === 'consultation' && (
@@ -313,10 +320,10 @@ function DoctorDashboard() {
              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                <thead>
                  <tr style={{ background: '#ffffff', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0' }}>
-                   <th style={{ padding: '15px 25px' }}>Queue & Stage</th>
-                   <th style={{ padding: '15px 25px' }}>Patient & Triage Alerts</th>
-                   <th style={{ padding: '15px 25px' }}>Service & Chief Complaint</th>
-                   <th style={{ padding: '15px 25px' }}>Workstation Actions</th>
+                   <th style={{ padding: '15px 25px' }}>Queue</th>
+                   <th style={{ padding: '15px 25px' }}>Patient Details</th>
+                   <th style={{ padding: '15px 25px' }}>Service & Reason</th>
+                   <th style={{ padding: '15px 25px' }}>Action</th>
                  </tr>
                </thead>
                <tbody>
@@ -352,8 +359,8 @@ function DoctorDashboard() {
                          </td>
                          <td style={{ padding: '20px 25px' }}>
                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                             <button onClick={() => callPatient(app)} style={{ background: '#fffbeb', color: '#d97706', border: '1px solid #fde68a', padding: '8px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><FaBullhorn /> Call Next</button>
-                             <button onClick={() => openConsultation(app)} style={{ background: '#3b82f6', color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><FaStethoscope /> Open EMR</button>
+                             <button onClick={() => callPatient(app)} style={{ background: '#fffbeb', color: '#d97706', border: '1px solid #fde68a', padding: '8px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><FaBullhorn /> Call</button>
+                             <button onClick={() => openConsultation(app)} style={{ background: '#3b82f6', color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><FaStethoscope /> Consult</button>
                              <button onClick={() => markNoShow(app)} style={{ background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', padding: '8px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><FaUserSlash /> No Show</button>
                            </div>
                          </td>
@@ -369,12 +376,12 @@ function DoctorDashboard() {
         {activeTab === 'records' && (
            <div className="dash-card" style={{ padding: '0', overflow: 'hidden' }}>
              <div style={{ padding: '20px 25px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-               <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Encrypted Cloud EMR Registry</h3>
+               <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Completed Consultations</h3>
              </div>
              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                <thead><tr style={{ background: '#ffffff', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0' }}><th style={{ padding: '15px 25px' }}>Date & Patient</th><th style={{ padding: '15px 25px' }}>Clinical Diagnosis</th><th style={{ padding: '15px 25px' }}>Prescribed Meds</th><th style={{ padding: '15px 25px' }}>Follow-Up</th></tr></thead>
+                <thead><tr style={{ background: '#ffffff', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0' }}><th style={{ padding: '15px 25px' }}>Date & Patient</th><th style={{ padding: '15px 25px' }}>Diagnosis</th><th style={{ padding: '15px 25px' }}>Prescription</th><th style={{ padding: '15px 25px' }}>Follow-Up</th></tr></thead>
                 <tbody>
-                  {completedRecords.length === 0 ? <tr><td colSpan="4" style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No completed EMR consultations yet.</td></tr> : completedRecords.map((app) => (
+                  {completedRecords.length === 0 ? <tr><td colSpan="4" style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No completed consultations yet.</td></tr> : completedRecords.map((app) => (
                     <tr key={app.id} style={{ borderBottom: '1px solid #f1f5f9', background: 'white' }}>
                       <td style={{ padding: '20px 25px' }}><strong style={{ color: '#1e293b', display: 'block', fontSize: '14px' }}>{usersData[app.patientId]?.fullName}</strong><div style={{ fontSize: '11px', color: '#64748b' }}>{app.appointmentDate} | {app.queueNumber}</div></td>
                       <td style={{ padding: '20px 25px', fontSize: '13px', color: '#475569' }}>{decryptData(app.diagnosis) || 'No diagnosis recorded'}</td>

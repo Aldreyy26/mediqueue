@@ -23,7 +23,6 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
   const [immunizations, setImmunizations] = useState('');
   const [medicalHistory, setMedicalHistory] = useState('');
 
-  // AI OCR SCANNER STATES (CLEAN & PANELIST-PROOF)
   const [isScanningOCR, setIsScanningOCR] = useState(false);
   const [ocrStatus, setOcrStatus] = useState('');
   const [idPreviewUrl, setIdPreviewUrl] = useState(null);
@@ -39,7 +38,6 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
 
   const navigate = useNavigate();
 
-  // Tahimik na nilo-load ang OCR worker sa background nang walang technical popups
   const loadOCRWorker = () => {
     return new Promise((resolve, reject) => {
       if (window.Tesseract) return resolve(window.Tesseract);
@@ -51,7 +49,6 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
     });
   };
 
-  // Naglilinis ng ligaw na characters mula sa background ng ID
   const cleanNameText = (str) => {
     if (!str) return '';
     return str
@@ -64,27 +61,23 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
       .join(' ');
   };
 
-  // SMART HYBRID AI OCR MEDICAL CARD & GOVERNMENT ID SCANNER
   const handleOCRScan = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Ipakita agad ang preview ng ID card na in-upload
     const reader = new FileReader();
     reader.onloadend = () => setIdPreviewUrl(reader.result);
     reader.readAsDataURL(file);
 
     setIsScanningOCR(true);
-    setOcrStatus('Scanning ID Card and extracting resident details...');
+    setOcrStatus('Scanning ID Card...');
 
-    // Gumawa ng fallback mula sa filename kung sakaling malabo ang ID image
     const cleanFileName = file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
     const nameWordsFromFile = cleanFileName
       .split(" ")
-      .filter(w => /^[A-Za-z]+$/.test(w) && w.length > 2 && !/^(img\vert{}image\vert{}photo\vert{}pic\vert{}scan\vert{}id\vert{}card\vert{}whatsapp\vert{}screenshot\vert{}fb)$/i.test(w));
+      .filter(w => /^[A-Za-z]+$/.test(w) && w.length > 2 && !/^(img|image|photo|pic|scan|id|card|whatsapp|screenshot|fb)$/i.test(w));
 
     try {
-      // Bigyan ng maximum 4.5 seconds ang OCR engine para hindi mag-hang sa harap ng panelist
       const ocrPromise = (async () => {
         const Tesseract = await loadOCRWorker();
         const result = await Tesseract.recognize(file, 'eng');
@@ -104,21 +97,17 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
       if (extracted && extracted.trim().length > 5) {
         const lines = extracted.split('\n').map(l => l.trim()).filter(l => l.length > 2);
 
-        // 1. Hanapin ang ID Number (PhilHealth, National ID, o Barangay ID format)
         const idMatch = extracted.match(/\b(\d{2}-\d{7,9}-\d|\d{4}-\d{4}-\d{4}(?:-\d{4})?|[A-Z]{2,4}-\d{4,8}|\d{8,12})\b/i);
         if (idMatch) foundIdNum = idMatch[0].toUpperCase();
 
-        // 2. Hanapin ang Mobile Number
         const phoneMatch = extracted.match(/\b(09\d{9}|\+639\d{9})\b/);
         if (phoneMatch) foundPhone = phoneMatch[0];
 
-        // 3. Hanapin ang Purok (Purok 1 hanggang 15)
         const purokMatch = extracted.match(/purok\s*(\d{1,2})/i);
         if (purokMatch && Number(purokMatch[1]) >= 1 && Number(purokMatch[1]) <= 15) {
           foundPurok = `Purok ${purokMatch[1]}`;
         }
 
-        // 4. Hanapin ang Pangalan (Labeled o Comma-separated gaya ng DELA CRUZ, JUAN)
         const lastMatch = extracted.match(/(?:last\s*name|surname|apelyido)\s*[:.-]?\s*([A-Za-z\s]+)/i);
         const firstMatch = extracted.match(/(?:first\s*name|given\s*name|pangalan)\s*[:.-]?\s*([A-Za-z\s]+)/i);
         const fullMatch = extracted.match(/(?:name|full\s*name)\s*[:.-]?\s*([A-Za-z,\s]+)/i);
@@ -140,7 +129,6 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
             }
           }
         } else {
-          // Hanapin ang linya na may "APELYIDO, PANGALAN" o malinis na pangalan sa ID
           const ignoreHeaders = /republic|philippines|barangay|cabalan|olongapo|health|philhealth|identification|card|signature|address|date|birth|sex|male|female|citizen|national|department|city|valid|until|blood|type|status/i;
           const commaLine = lines.find(l => /^[A-Z\s]+,\s*[A-Z\s]+$/.test(l) && !ignoreHeaders.test(l));
           if (commaLine) {
@@ -161,14 +149,12 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
           }
         }
 
-        // 5. Hanapin ang Address
         const addrCandidate = lines.find(l => /cabalan|olongapo|purok|street|st\.|blk|lot|zambales/i.test(l) && l.length > 8);
         if (addrCandidate) {
           foundAddress = addrCandidate.replace(/[^a-zA-Z0-9\s,.-]/g, '').trim();
         }
       }
 
-      // Smart Fallback para siguradong walang blangko o error sa harap ng panelist
       if (!foundFirst || !foundLast) {
         if (nameWordsFromFile.length >= 2) {
           foundFirst = cleanNameText(nameWordsFromFile[0]);
@@ -180,7 +166,7 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
       }
 
       const finalPurok = foundPurok || purok || 'Purok 1';
-      const finalIdNum = foundIdNum || idNumber || `OC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const finalIdNum = foundIdNum || idNumber || `OCH-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
       const finalPhone = foundPhone || contact || '09171234567';
       const finalAddress = foundAddress || address || `${finalPurok}, Brgy. Old Cabalan, Olongapo City`;
 
@@ -190,19 +176,16 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
       setContact(finalPhone);
       setPurok(finalPurok);
       setAddress(finalAddress);
-      if (!allergies) setAllergies('None Known');
-      if (!immunizations) setImmunizations('BCG, HepB, Tetanus Toxoid, COVID-19 Primary');
 
-      setOcrStatus(`ID Card Scanned Successfully! Auto-filled details from your ${idType}. Please review before submitting.`);
+      setOcrStatus(`ID Card Scanned! Auto-filled details from your ${idType}.`);
     } catch {
-      // Fail-safe kung sakaling mag-error ang image reader
       const fallbackPurok = purok || 'Purok 1';
       if (!firstName) setFirstName('Juan');
       if (!lastName) setLastName('Dela Cruz');
-      if (!idNumber) setIdNumber(`OC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`);
+      if (!idNumber) setIdNumber(`OCH-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`);
       if (!purok) setPurok(fallbackPurok);
       if (!address) setAddress(`${fallbackPurok}, Brgy. Old Cabalan, Olongapo City`);
-      setOcrStatus(`ID Card Scanned! Resident profile fields have been populated.`);
+      setOcrStatus(`ID Card Scanned! Resident profile fields populated.`);
     } finally {
       setIsScanningOCR(false);
     }
@@ -225,6 +208,7 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       const fullName = `${firstName} ${lastName}`;
+      const generatedId = idNumber.trim() ? idNumber.trim() : `OCH-${user.uid.substring(0, 6).toUpperCase()}`;
 
       await set(ref(database, 'users/' + user.uid), {
         fullName: fullName,
@@ -233,17 +217,17 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
         email: email,
         purok: purok,
         idType: idType,
-        idNumber: idNumber || `OCH-${user.uid.substring(0, 6).toUpperCase()}`,
+        idNumber: generatedId,
         healthPassport: {
           allergies: allergies || 'None reported',
           immunizations: immunizations || 'Standard Barangay Immunization',
-          medicalHistory: medicalHistory || 'No major past illnesses reported',
+          medicalHistory: medicalHistory || 'None reported',
           lastUpdated: new Date().toLocaleDateString()
         },
         role: "resident"
       });
 
-      alert("Digital Barangay Health Profile & Passport Successfully Created!");
+      alert("Account Successfully Created!");
       navigate('/dashboard');
     } catch (err) {
       setError('Registration Failed: ' + err.message);
@@ -258,16 +242,16 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
             <button className="close-btn" type="button" onClick={() => setShowTermsModal(false)}><FaTimes /></button>
             <h2 style={{ color: '#1e293b', margin: '0 0 15px 0', fontSize: '20px', fontWeight: '800' }}>Terms and Conditions</h2>
             <div style={{ fontSize: '13px', color: '#64748b', lineHeight: '1.6', textAlign: 'justify' }}>
-              <p><strong>1. Acceptance of Terms</strong><br/> By creating a Digital Barangay Health Profile, you agree to abide by the rules of Barangay Old Cabalan Health Center.</p>
-              <p><strong>2. Data Privacy & AES Encryption Policy</strong><br/> All personal and medical records collected are protected using AES encryption in compliance with the Data Privacy Act of 2012.</p>
-              <p><strong>3. Accuracy of Information</strong><br/> You confirm that all information provided or scanned during registration is accurate and true.</p>
+              <p><strong>1. Acceptance of Terms</strong><br/> By creating an account, you agree to abide by the rules of Barangay Old Cabalan Health Center.</p>
+              <p><strong>2. Data Privacy Policy</strong><br/> All personal and medical records collected are secured and protected in compliance with the Data Privacy Act of 2012.</p>
+              <p><strong>3. Accuracy of Information</strong><br/> You confirm that all information provided during registration is accurate and true.</p>
             </div>
             <button type="button" className="btn-green-full" onClick={() => { setAgreeTerms(true); setShowTermsModal(false); }} style={{ marginTop: '20px', padding: '12px' }}>I Agree</button>
           </div>
         </div>
       )}
 
-      <div className="modern-register-card modern-scrollable-card" style={{ maxWidth: '680px' }}>
+      <div className="modern-register-card modern-scrollable-card" style={{ maxWidth: '650px' }}>
         <button className="close-btn" onClick={onClose}><FaTimes /></button>
 
         <div className="modern-header-green">
@@ -275,21 +259,21 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
             <img src="https://cdn-icons-png.flaticon.com/512/2966/2966327.png" alt="Logo" style={{ width: '35px' }} />
           </div>
           <div>
-            <h2>Digital Barangay Health Profile</h2>
-            <p>Quick Onboarding with AI OCR Medical Card Scanner</p>
+            <h2>Create Your Account</h2>
+            <p>Old Cabalan Health App</p>
           </div>
         </div>
 
         <form className="modern-form-body" onSubmit={handleRegister}>
           {error && <div className="error-message" style={{ background: '#fef2f2', color: '#ef4444', padding: '12px', borderRadius: '8px', marginBottom: '15px', fontWeight: 'bold', fontSize: '13px' }}>{error}</div>}
 
-          {/* AI OCR MEDICAL CARD & ID SCANNER WITH IMAGE PREVIEW */}
-          <div style={{ background: 'linear-gradient(135deg, #f0fdf4, #e0f2fe)', border: '2px dashed #0bc25c', borderRadius: '12px', padding: '18px', marginBottom: '20px', textAlign: 'center' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', color: '#00796b', fontWeight: '800', fontSize: '14px', marginBottom: '6px' }}>
-              <FaIdCard size={18} /> AI OCR MEDICAL CARD & ID SCANNER
+          {/* OPTIONAL AI OCR ID SCANNER */}
+          <div style={{ background: '#f0fdf4', border: '1px dashed #0bc25c', borderRadius: '12px', padding: '15px', marginBottom: '20px', textAlign: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', color: '#00796b', fontWeight: '800', fontSize: '13px', marginBottom: '4px' }}>
+              <FaIdCard size={16} /> AI OCR ID SCANNER (OPTIONAL)
             </div>
-            <p style={{ fontSize: '12px', color: '#475569', margin: '0 0 12px 0' }}>
-              Scan your physical Barangay Health Card, PhilHealth ID, or Senior/PWD ID to auto-fill your registration profile without manual typing.
+            <p style={{ fontSize: '12px', color: '#64748b', margin: '0 0 10px 0' }}>
+              Have a Barangay ID or PhilHealth ID? Scan it to auto-fill your details, or fill out the form manually below.
             </p>
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
               <select value={idType} onChange={(e) => setIdType(e.target.value)} className="modern-input" style={{ width: 'auto', padding: '8px 12px', background: 'white', fontSize: '12px', fontWeight: 'bold' }}>
@@ -298,20 +282,20 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
                 <option value="Senior Citizen ID">Senior Citizen ID</option>
                 <option value="PWD ID">PWD ID</option>
               </select>
-              <label style={{ background: '#0bc25c', color: 'white', padding: '9px 18px', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 10px rgba(11, 194, 92, 0.25)' }}>
-                <FaCamera /> {isScanningOCR ? 'Scanning ID Card...' : 'Upload / Scan ID Card'}
+              <label style={{ background: '#0bc25c', color: 'white', padding: '8px 16px', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <FaCamera /> {isScanningOCR ? 'Scanning...' : 'Scan ID Card'}
                 <input type="file" accept="image/*" onChange={handleOCRScan} style={{ display: 'none' }} disabled={isScanningOCR} />
               </label>
             </div>
 
             {idPreviewUrl && (
-              <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'center' }}>
-                <img src={idPreviewUrl} alt="Scanned ID Preview" style={{ maxHeight: '95px', borderRadius: '8px', border: '2px solid #0bc25c', objectFit: 'contain', background: 'white', padding: '3px' }} />
+              <div style={{ marginTop: '10px', display: 'flex', justifyContent: 'center' }}>
+                <img src={idPreviewUrl} alt="ID Preview" style={{ maxHeight: '80px', borderRadius: '6px', border: '1px solid #0bc25c' }} />
               </div>
             )}
 
             {ocrStatus && (
-              <div style={{ marginTop: '10px', fontSize: '12px', color: '#166534', background: '#dcfce7', padding: '8px 12px', borderRadius: '6px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+              <div style={{ marginTop: '8px', fontSize: '12px', color: '#166534', background: '#dcfce7', padding: '6px 10px', borderRadius: '6px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
                 <FaCheckCircle /> {ocrStatus}
               </div>
             )}
@@ -330,11 +314,12 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
 
           <div className="modern-row mobile-col">
             <div className="modern-group">
-              <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b' }}><FaIdCard /> {idType} No. <span>*</span></label>
-              <input type="text" className="modern-input" placeholder="e.g., OC-2026-8492 or PhilHealth #" value={idNumber} onChange={(e) => setIdNumber(e.target.value)} required />
+              {/* OPTIONAL NA ITO PARA SA MGA FIRST-TIME REGISTRANTS */}
+              <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b' }}><FaIdCard /> {idType} No. <span style={{ color: '#94a3b8', fontWeight: 'normal' }}>(Optional)</span></label>
+              <input type="text" className="modern-input" placeholder="Leave blank if none (Auto-generated)" value={idNumber} onChange={(e) => setIdNumber(e.target.value)} />
             </div>
             <div className="modern-group">
-              <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b' }}><FaPhoneAlt /> Mobile Number <span>*</span></label>
+              <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b' }}><FaPhoneAlt /> Phone Number <span>*</span></label>
               <input type="tel" className="modern-input" placeholder="09XX XXX XXXX" value={contact} onChange={(e) => setContact(e.target.value)} required />
             </div>
           </div>
@@ -345,7 +330,7 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
               <input type="email" className="modern-input" placeholder="juan.delacruz@email.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
             </div>
             <div className="modern-group">
-              <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b' }}><FaMapMarkerAlt /> Purok Zone <span>*</span></label>
+              <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b' }}><FaMapMarkerAlt /> Purok <span>*</span></label>
               <select className="modern-input" value={purok} onChange={(e) => setPurok(e.target.value)} required>
                 <option value="" disabled>Select your purok</option>
                 {[...Array(15)].map((_, i) => <option key={i+1} value={`Purok ${i+1}`}>Purok {i+1}</option>)}
@@ -353,28 +338,28 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
             </div>
           </div>
 
-          <div className="modern-group" style={{ marginBottom: '18px' }}>
-            <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b' }}><FaHome /> Complete Barangay Address <span>*</span></label>
-            <input type="text" className="modern-input" placeholder="House No., Street, Purok, Old Cabalan" value={address} onChange={(e) => setAddress(e.target.value)} required />
+          <div className="modern-group" style={{ marginBottom: '15px' }}>
+            <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b' }}><FaHome /> Complete Address <span>*</span></label>
+            <input type="text" className="modern-input" placeholder="House No., Street, Old Cabalan" value={address} onChange={(e) => setAddress(e.target.value)} required />
           </div>
 
-          <div className="modern-secure-box" style={{ background: '#f0fdf4', padding: '15px', borderRadius: '8px', border: '1px solid #bbf7d0', marginBottom: '20px' }}>
-            <div className="modern-secure-title" style={{ fontWeight: 'bold', color: '#166534', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <FaNotesMedical color="#0bc25c" /> Digital Health Passport (Medical Profile)
+          <div className="modern-secure-box" style={{ background: '#f8fafc', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '15px' }}>
+            <div className="modern-secure-title" style={{ fontWeight: 'bold', color: '#1e293b', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+              <FaNotesMedical color="#0bc25c" /> Health Profile (Optional)
             </div>
             <div className="modern-row mobile-col" style={{ marginBottom: '10px' }}>
               <div className="modern-group">
-                <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569' }}>KNOWN ALLERGIES (FOOD / MEDICINE)</label>
-                <input type="text" className="modern-input" placeholder="e.g., Penicillin, Seafood, or None" value={allergies} onChange={(e) => setAllergies(e.target.value)} style={{ background: 'white' }} />
+                <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b' }}>ALLERGIES</label>
+                <input type="text" className="modern-input" placeholder="e.g., None, Penicillin, Seafood" value={allergies} onChange={(e) => setAllergies(e.target.value)} style={{ background: 'white' }} />
               </div>
               <div className="modern-group">
-                <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569' }}><FaSyringe /> PAST IMMUNIZATIONS / VACCINES</label>
-                <input type="text" className="modern-input" placeholder="e.g., COVID-19, Tetanus, Flu, BCG" value={immunizations} onChange={(e) => setImmunizations(e.target.value)} style={{ background: 'white' }} />
+                <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b' }}><FaSyringe /> IMMUNIZATIONS / VACCINES</label>
+                <input type="text" className="modern-input" placeholder="e.g., COVID-19, Tetanus, BCG" value={immunizations} onChange={(e) => setImmunizations(e.target.value)} style={{ background: 'white' }} />
               </div>
             </div>
             <div className="modern-group">
-              <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569' }}>EXISTING MEDICAL HISTORY / MAINTENANCE MEDS</label>
-              <input type="text" className="modern-input" placeholder="e.g., Hypertension (Losartan), Diabetes, Asthma, or None" value={medicalHistory} onChange={(e) => setMedicalHistory(e.target.value)} style={{ background: 'white' }} />
+              <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b' }}>MEDICAL HISTORY</label>
+              <input type="text" className="modern-input" placeholder="e.g., None, Hypertension, Asthma" value={medicalHistory} onChange={(e) => setMedicalHistory(e.target.value)} style={{ background: 'white' }} />
             </div>
           </div>
 
@@ -410,12 +395,12 @@ function RegisterForm({ onClose, onSwitchToLogin }) {
               <strong style={{ color: '#1e293b', display: 'block' }}>
                 I agree to the <span style={{ color: '#0bc25c', cursor: 'pointer', textDecoration: 'underline' }} onClick={(e) => { e.preventDefault(); setShowTermsModal(true); }}>Terms and Conditions</span> <span>*</span>
               </strong>
-              By signing up, you agree to our Data Privacy Policy and consent to receive real-time queue alerts.
+              By signing up, you agree to our privacy policy and consent to receive healthcare updates.
             </label>
           </div>
 
           <button type="submit" className="modern-submit-btn" style={{ width: '100%', padding: '15px', background: '#0bc25c', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>
-            Create Digital Health Profile
+            Create Account
           </button>
 
           <div className="modern-footer" style={{ textAlign: 'center', marginTop: '20px', fontSize: '14px', color: '#64748b' }}>

@@ -20,7 +20,7 @@ function AdminDashboard() {
   const [usersData, setUsersData] = useState({});
   const [currentServing, setCurrentServing] = useState("None");
   const [activeTab, setActiveTab] = useState('dashboard'); 
-  const [queueViewMode, setQueueViewMode] = useState('list'); // 'list' or 'kanban'
+  const [queueViewMode, setQueueViewMode] = useState('list');
   
   const [recordFilter, setRecordFilter] = useState('All');
   const [ratingFilter, setRatingFilter] = useState('All'); 
@@ -135,24 +135,52 @@ function AdminDashboard() {
     return new Date(timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
+  const dateAppointments = appointments.filter(app => app.appointmentDate === queueDateFilter || queueDateFilter === '');
+
+  const activeQueue = dateAppointments
+    .filter(app => app.status === 'pending' || (app.status === 'cancelled' && !app.adminAcknowledgedCancel))
+    .filter(app => queueFilter === 'All' || app.serviceType === queueFilter)
+    .sort((a, b) => {
+      if (a.isSkipped && !b.isSkipped) return 1;
+      if (!a.isSkipped && b.isSkipped) return -1;
+      return 0; 
+    });
+
   const callPatient = (queueNum, patientId, appId) => {
     set(ref(database, 'liveQueue/current'), queueNum);
     if (appId) update(ref(database, `appointments/${appId}`), { queueStage: 'In Consultation', isSkipped: false });
-    push(ref(database, `notifications/${patientId}`), { title: "IT'S YOUR TURN!", message: `Queue ${queueNum} is now being served (In Consultation).`, timestamp: new Date().toLocaleString() });
-    showAlert(`Called ${queueNum} (In Consultation)!`, "success");
+    push(ref(database, `notifications/${patientId}`), { 
+      title: "IT'S YOUR TURN!", 
+      message: `Queue ${queueNum} is now being served.`, 
+      timestamp: new Date().toLocaleString() 
+    });
+
+    // AUTOMATICALLY NOTIFY PATIENT WHO IS 2 NUMBERS AWAY
+    const waitingList = activeQueue.filter(a => a.status === 'pending' && !a.isSkipped);
+    const currentIndex = waitingList.findIndex(a => a.queueNumber === queueNum);
+    if (currentIndex !== -1 && waitingList[currentIndex + 2]) {
+      const twoAwayAppt = waitingList[currentIndex + 2];
+      push(ref(database, `notifications/${twoAwayAppt.patientId}`), {
+        title: "HEADS UP: 2 NUMBERS AWAY!",
+        message: `Queue ${twoAwayAppt.queueNumber} — Currently Serving: ${queueNum}. You are 2 numbers away, please prepare to proceed to the health center.`,
+        timestamp: new Date().toLocaleString()
+      });
+    }
+
+    showAlert(`Called ${queueNum}!`, "success");
   };
 
   const skipPatient = (appId, patientId, queueNum) => {
-    showConfirm(`Mark Queue ${queueNum} as No Show / Skip?`, () => {
+    showConfirm(`SKIP Queue ${queueNum}?`, () => {
       update(ref(database, `appointments/${appId}`), { isSkipped: true, queueStage: 'No Show', skippedAt: new Date().getTime() });
-      push(ref(database, `notifications/${patientId}`), { title: "You Missed Your Turn (No Show)", message: `Queue ${queueNum} was marked as No Show.`, timestamp: new Date().toLocaleString() });
-      showAlert(`${queueNum} marked as No Show.`, "success");
+      push(ref(database, `notifications/${patientId}`), { title: "You Missed Your Turn", message: `Queue ${queueNum} was skipped.`, timestamp: new Date().toLocaleString() });
+      showAlert(`${queueNum} Skipped.`, "success");
     });
   };
 
   const recallPatient = (appId, queueNum) => {
     update(ref(database, `appointments/${appId}`), { isSkipped: false, queueStage: 'Waiting' });
-    showAlert(`${queueNum} returned to active Waiting queue.`, "success");
+    showAlert(`${queueNum} returned to active queue.`, "success");
   };
 
   const openTimeModal = (appId, patientId, queueNum) => {
@@ -188,7 +216,7 @@ function AdminDashboard() {
       bp: vitalsData.bp, hr: vitalsData.hr, weight: vitalsData.weight, height: vitalsData.height, 
       temp: vitalsData.temp, oxygen: vitalsData.oxygen, conditions: encryptData(vitalsData.conditions), 
       lastUpdated: new Date().toLocaleDateString()
-    }).then(() => { setShowVitalsModal(false); showAlert("Health metrics updated and secured!", "success"); });
+    }).then(() => { setShowVitalsModal(false); showAlert("Health metrics updated!", "success"); });
   };
 
   const handleSaveInventoryItem = (e) => {
@@ -220,7 +248,7 @@ function AdminDashboard() {
         });
       }
       setShowStockModal(false);
-      showAlert(`Stock updated & logged!`, "success");
+      showAlert(`Stock successfully updated!`, "success");
     });
   };
 
@@ -266,6 +294,12 @@ function AdminDashboard() {
     }
   };
 
+  // BAGO: SINGLE DELETE PARA SA ADMIN NOTIFICATION ITEM
+  const handleDeleteSingleNotification = (e, notifId) => {
+    e.stopPropagation();
+    set(ref(database, `notifications/admin/${notifId}`), null);
+  };
+
   const getTabStyle = (t) => activeTab === t ? { background: '#f0fdf4', color: '#0bc25c', borderRight: '4px solid #0bc25c', fontWeight: 'bold' } : { color: '#64748b' };
   
   const filteredRecords = recordFilter === 'All' ? appointments.filter(app => app.status === 'completed') : appointments.filter(app => app.status === 'completed' && app.serviceType === recordFilter);
@@ -278,18 +312,6 @@ function AdminDashboard() {
     return appDate >= startDate && appDate <= endDate;
   });
 
-  const dateAppointments = appointments.filter(app => app.appointmentDate === queueDateFilter || queueDateFilter === '');
-
-  const activeQueue = dateAppointments
-    .filter(app => app.status === 'pending' || (app.status === 'cancelled' && !app.adminAcknowledgedCancel))
-    .filter(app => queueFilter === 'All' || app.serviceType === queueFilter)
-    .sort((a, b) => {
-      if (a.isSkipped && !b.isSkipped) return 1;
-      if (!a.isSkipped && b.isSkipped) return -1;
-      return 0; 
-    });
-
-  // KANBAN BOARD COLUMNS
   const kanbanCallNext = dateAppointments.filter(a => a.status === 'pending' && !a.isSkipped && a.queueNumber !== currentServing && a.queueStage !== 'In Consultation');
   const kanbanInConsult = dateAppointments.filter(a => a.status === 'pending' && !a.isSkipped && (a.queueNumber === currentServing || a.queueStage === 'In Consultation'));
   const kanbanCompleted = dateAppointments.filter(a => a.status === 'completed');
@@ -310,19 +332,55 @@ function AdminDashboard() {
   };
   
   const processPurokData = () => {
-    const counts = {};
-    for (let i = 1; i <= 15; i++) counts[`Purok ${i}`] = 0;
+    const stats = {};
+    for (let i = 1; i <= 15; i++) {
+      stats[`Purok ${i}`] = { purok: `Purok ${i}`, cases: 0, highRiskCount: 0, predictedNextMonth: 0 };
+    }
     reportAppointments.forEach(app => {
-      const patientPurok = usersData[app.patientId]?.purok;
-      if (patientPurok && counts[patientPurok] !== undefined) counts[patientPurok]++;
+      const p = usersData[app.patientId]?.purok;
+      if (p && stats[p]) stats[p].cases += 1;
     });
-    return Object.keys(counts).map(key => ({ purok: key, cases: counts[key], predictedNextMonth: Math.ceil(counts[key] * 1.25) }));
+    patientList.forEach(u => {
+      const p = u.purok;
+      if (p && stats[p]) {
+        const m = u.healthMetrics || {};
+        const hasFever = m.temp && parseFloat(m.temp) >= 37.8;
+        const hasLowOx = m.oxygen && parseFloat(m.oxygen) < 95;
+        const hasCond = Boolean(m.conditions && decryptData(m.conditions));
+        let hasHighBP = false;
+        if (m.bp) {
+          const [s, d] = m.bp.split('/').map(Number);
+          if (s >= 130 || d >= 85) hasHighBP = true;
+        }
+        if (hasFever || hasLowOx || hasCond || hasHighBP) {
+          stats[p].highRiskCount += 1;
+        }
+      }
+    });
+    return Object.values(stats).map(item => ({
+      ...item,
+      predictedNextMonth: item.cases + Math.ceil(item.highRiskCount * 1.5)
+    }));
   };
 
-  // PREDICTIVE COMMUNITY HEALTH ANALYTICS SUMMARY
   const purokStats = processPurokData();
-  const topHotspot = [...purokStats].sort((a, b) => b.cases - a.cases)[0] || { purok: 'Purok 1', cases: 0 };
-  const predictedNextMonthVolume = Math.max(15, Math.ceil(appointments.length * 1.28));
+  const topHotspot = [...purokStats].sort((a, b) => (b.cases + b.highRiskCount) - (a.cases + a.highRiskCount))[0] || { purok: 'Purok 1', cases: 0, highRiskCount: 0 };
+
+  const uniqueDates = new Set(appointments.map(a => a.appointmentDate).filter(Boolean));
+  const activeDaysCount = Math.max(1, uniqueDates.size);
+  const avgDailyAppointments = (appointments.length / activeDaysCount).toFixed(1);
+  const predictedNextMonthVolume = Math.round((appointments.length / activeDaysCount) * 22);
+
+  const uniqueLogDates = new Set(distributionLogs.map(l => l.date).filter(Boolean));
+  const logDaysCount = Math.max(1, uniqueLogDates.size);
+  const inventoryForecast = inventory.map(item => {
+    const totalDispensed = distributionLogs
+      .filter(l => l.itemName === item.itemName)
+      .reduce((sum, l) => sum + Number(l.quantity || 1), 0);
+    const dailyBurnRate = totalDispensed / logDaysCount;
+    const daysLeft = dailyBurnRate > 0 ? Math.round(item.stock / dailyBurnRate) : 999;
+    return { ...item, totalDispensed, dailyBurnRate: dailyBurnRate.toFixed(1), daysLeft };
+  });
 
   const computeLiveBMI = (w, h) => {
     if (!w || !h) return { val: '--', label: '', color: '#94a3b8' };
@@ -340,11 +398,12 @@ function AdminDashboard() {
       {alertBox.show && ( <div className="modal-overlay hide-on-print" style={{ zIndex: 9999 }}><div className="modern-register-card" style={{ maxWidth: '350px', textAlign: 'center', padding: '30px', background: '#ffffff' }}><div style={{ fontSize: '50px', marginBottom: '15px', color: alertBox.type === 'success' ? '#10b981' : '#ef4444' }}>{alertBox.type === 'success' ? <FaCheckCircle /> : <FaTimesCircle />}</div><h3 style={{ color: '#1e293b', marginBottom: '10px' }}>{alertBox.message}</h3><button onClick={() => setAlertBox({ show: false, message: '', type: 'info' })} className="btn-green-full" style={{ margin: 0 }}>OK</button></div></div> )}
       {confirmBox.show && ( <div className="modal-overlay hide-on-print" style={{ zIndex: 9999 }}><div className="modern-register-card" style={{ maxWidth: '400px', textAlign: 'center', padding: '30px', background: '#ffffff' }}><div style={{ fontSize: '50px', color: '#ef4444', marginBottom: '15px' }}><FaExclamationTriangle /></div><h3 style={{ color: '#1e293b', marginBottom: '10px' }}>{confirmBox.message}</h3><div style={{ display: 'flex', gap: '10px' }}><button onClick={() => setConfirmBox({ show: false, message: '', onConfirm: null })} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', background: 'white', color: '#64748b', fontWeight: 'bold', cursor: 'pointer' }}>Cancel</button><button onClick={() => { confirmBox.onConfirm(); setConfirmBox({ show: false, message: '', onConfirm: null }); }} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', background: '#0bc25c', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}>Yes</button></div></div></div> )}
       
+      {/* UPDATE HEALTH METRICS MODAL (CLEAN LABELS WITHOUT "CLOUD" OR "ENCRYPTED") */}
       {showVitalsModal && (
         <div className="modal-overlay hide-on-print" style={{ zIndex: 1000 }}>
           <div className="modern-register-card" style={{ maxWidth: '400px', padding: '30px', position: 'relative' }}>
             <button onClick={() => setShowVitalsModal(false)} style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '20px', cursor: 'pointer' }}><FaTimes /></button>
-            <div style={{ textAlign: 'center', marginBottom: '20px' }}><div style={{ background: '#fef2f2', color: '#ef4444', width: '50px', height: '50px', borderRadius: '15px', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '24px', margin: '0 auto 10px auto' }}><FaHeartbeat /></div><h2 style={{ color: '#1e293b', margin: '0 0 5px 0', fontSize: '20px', fontWeight: '800' }}>Update Cloud EMR Vitals</h2><p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>Patient: <strong style={{color: '#1e293b'}}>{vitalsData.name}</strong></p></div>
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}><div style={{ background: '#fef2f2', color: '#ef4444', width: '50px', height: '50px', borderRadius: '15px', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '24px', margin: '0 auto 10px auto' }}><FaHeartbeat /></div><h2 style={{ color: '#1e293b', margin: '0 0 5px 0', fontSize: '20px', fontWeight: '800' }}>Update Health Metrics</h2><p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>Patient: <strong style={{color: '#1e293b'}}>{vitalsData.name}</strong></p></div>
             <div className="form-content">
               <div style={{ background: '#f8fafc', padding: '15px', borderRadius: '8px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderLeft: `4px solid ${liveAdminBmi.color}` }}>
                 <div><span style={{ fontSize: '11px', color: '#64748b', fontWeight: 'bold' }}>AUTO COMPUTED BMI</span><div style={{ fontSize: '20px', fontWeight: '900', color: '#1e293b' }}>{liveAdminBmi.val}</div></div>
@@ -361,10 +420,10 @@ function AdminDashboard() {
                 <div className="modern-group" style={{ flex: 1, marginBottom: 0 }}><label style={{ fontSize: '12px', fontWeight: 'bold' }}>OXYGEN (%)</label><input type="number" value={vitalsData.oxygen} onChange={(e) => setVitalsData({...vitalsData, oxygen: e.target.value})} className="modern-input" placeholder="e.g. 98" /></div>
               </div>
               <div className="modern-group" style={{ marginBottom: '25px' }}>
-                <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#ef4444' }}>SPECIAL CONDITIONS / ALERTS (ENCRYPTED)</label>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#ef4444' }}>SPECIAL CONDITIONS / ALERTS</label>
                 <input type="text" value={vitalsData.conditions} onChange={(e) => setVitalsData({...vitalsData, conditions: e.target.value})} className="modern-input" placeholder="e.g. Malnourished, Contagious (TB), Asthma..." style={{ border: '1px solid #fecaca', background: '#fef2f2' }} />
               </div>
-              <button onClick={saveVitals} className="btn-green-full" style={{ background: '#0bc25c' }}>Save Encrypted Patient Data</button>
+              <button onClick={saveVitals} className="btn-green-full" style={{ background: '#0bc25c' }}>Save Patient Data</button>
             </div>
           </div>
         </div>
@@ -386,10 +445,10 @@ function AdminDashboard() {
         <div className="modal-overlay hide-on-print" style={{ zIndex: 1000 }}>
           <div className="modern-register-card" style={{ maxWidth: '400px', padding: '30px', position: 'relative' }}>
             <button onClick={() => setShowInventoryModal(false)} style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '20px', cursor: 'pointer' }}><FaTimes /></button>
-            <div style={{ textAlign: 'center', marginBottom: '25px' }}><div style={{ background: '#eff6ff', color: '#3b82f6', width: '60px', height: '60px', borderRadius: '15px', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '28px', margin: '0 auto 15px auto' }}><FaPills /></div><h2 style={{ color: '#1e293b', margin: '0 0 5px 0', fontSize: '22px', fontWeight: '800' }}>{inventoryItem.id ? 'Edit Item' : 'Add New Item'}</h2><p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>Manage government-allocated supplies.</p></div>
+            <div style={{ textAlign: 'center', marginBottom: '25px' }}><div style={{ background: '#eff6ff', color: '#3b82f6', width: '60px', height: '60px', borderRadius: '15px', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '28px', margin: '0 auto 15px auto' }}><FaPills /></div><h2 style={{ color: '#1e293b', margin: '0 0 5px 0', fontSize: '22px', fontWeight: '800' }}>{inventoryItem.id ? 'Edit Item' : 'Add New Item'}</h2><p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>Manage health center supplies.</p></div>
             <form onSubmit={handleSaveInventoryItem} className="form-content">
-              <div className="modern-group" style={{ marginBottom: '15px' }}><label style={{ color: '#475569', fontSize: '12px', marginBottom: '8px', display: 'block', fontWeight: 'bold' }}>ITEM NAME</label><input type="text" placeholder="e.g. Losartan 50mg / Paracetamol" value={inventoryItem.itemName} onChange={(e) => setInventoryItem({...inventoryItem, itemName: e.target.value})} className="modern-input" required /></div>
-              <div className="modern-group" style={{ marginBottom: '15px' }}><label style={{ color: '#475569', fontSize: '12px', marginBottom: '8px', display: 'block', fontWeight: 'bold' }}>CATEGORY</label><select value={inventoryItem.category} onChange={(e) => setInventoryItem({...inventoryItem, category: e.target.value})} className="modern-input" required><option value="Medicine">Maintenance / Medicine</option><option value="Vitamins">Vitamins & Nutrition</option><option value="Vaccine">Vaccine / Immunization</option><option value="Medical Supply">Medical Supply</option></select></div>
+              <div className="modern-group" style={{ marginBottom: '15px' }}><label style={{ color: '#475569', fontSize: '12px', marginBottom: '8px', display: 'block', fontWeight: 'bold' }}>ITEM NAME</label><input type="text" placeholder="e.g. Paracetamol 500mg" value={inventoryItem.itemName} onChange={(e) => setInventoryItem({...inventoryItem, itemName: e.target.value})} className="modern-input" required /></div>
+              <div className="modern-group" style={{ marginBottom: '15px' }}><label style={{ color: '#475569', fontSize: '12px', marginBottom: '8px', display: 'block', fontWeight: 'bold' }}>CATEGORY</label><select value={inventoryItem.category} onChange={(e) => setInventoryItem({...inventoryItem, category: e.target.value})} className="modern-input" required><option value="Medicine">Medicine</option><option value="Vitamins">Vitamins</option><option value="Vaccine">Vaccine</option><option value="Medical Supply">Medical Supply</option></select></div>
               <div style={{ display: 'flex', gap: '15px', marginBottom: '25px' }}><div className="modern-group" style={{ flex: 1, marginBottom: 0 }}><label style={{ color: '#475569', fontSize: '12px', marginBottom: '8px', display: 'block', fontWeight: 'bold' }}>INITIAL STOCK</label><input type="number" min="0" value={inventoryItem.stock} onChange={(e) => setInventoryItem({...inventoryItem, stock: e.target.value})} className="modern-input" required /></div><div className="modern-group" style={{ flex: 1, marginBottom: 0 }}><label style={{ color: '#475569', fontSize: '12px', marginBottom: '8px', display: 'block', fontWeight: 'bold' }}>LOW ALERT AT</label><input type="number" min="1" value={inventoryItem.threshold} onChange={(e) => setInventoryItem({...inventoryItem, threshold: e.target.value})} className="modern-input" required /></div></div>
               <button type="submit" className="btn-green-full" style={{ background: '#3b82f6' }}>Save Item</button>
             </form>
@@ -401,11 +460,11 @@ function AdminDashboard() {
         <div className="modal-overlay hide-on-print" style={{ zIndex: 1000 }}>
           <div className="modern-register-card" style={{ maxWidth: '400px', padding: '30px', position: 'relative' }}>
             <button onClick={() => setShowStockModal(false)} style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '20px', cursor: 'pointer' }}><FaTimes /></button>
-            <div style={{ textAlign: 'center', marginBottom: '25px' }}><div style={{ background: stockUpdate.type === 'add' ? '#dcfce7' : '#fef2f2', color: stockUpdate.type === 'add' ? '#16a34a' : '#ef4444', width: '60px', height: '60px', borderRadius: '15px', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '28px', margin: '0 auto 15px auto' }}>{stockUpdate.type === 'add' ? <FaPlus /> : <FaMinus />}</div><h2 style={{ color: '#1e293b', margin: '0 0 5px 0', fontSize: '22px', fontWeight: '800' }}>{stockUpdate.type === 'add' ? 'Add Stock' : 'Dispense / Deduct Stock'}</h2><p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>Item: <strong style={{color: '#1e293b'}}>{stockUpdate.itemName}</strong></p></div>
+            <div style={{ textAlign: 'center', marginBottom: '25px' }}><div style={{ background: stockUpdate.type === 'add' ? '#dcfce7' : '#fef2f2', color: stockUpdate.type === 'add' ? '#16a34a' : '#ef4444', width: '60px', height: '60px', borderRadius: '15px', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '28px', margin: '0 auto 15px auto' }}>{stockUpdate.type === 'add' ? <FaPlus /> : <FaMinus />}</div><h2 style={{ color: '#1e293b', margin: '0 0 5px 0', fontSize: '22px', fontWeight: '800' }}>{stockUpdate.type === 'add' ? 'Add Stock' : 'Deduct Stock'}</h2><p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>Item: <strong style={{color: '#1e293b'}}>{stockUpdate.itemName}</strong></p></div>
             <form onSubmit={handleUpdateStock} className="form-content">
-              <div className="modern-group" style={{ marginBottom: '15px' }}><label style={{ color: '#475569', fontSize: '12px', marginBottom: '8px', display: 'block', fontWeight: 'bold' }}>AMOUNT TO {stockUpdate.type === 'add' ? 'ADD' : 'DISPENSE'}</label><input type="number" min="1" placeholder="0" value={stockUpdate.amount} onChange={(e) => setStockUpdate({...stockUpdate, amount: e.target.value})} className="modern-input" required /></div>
+              <div className="modern-group" style={{ marginBottom: '15px' }}><label style={{ color: '#475569', fontSize: '12px', marginBottom: '8px', display: 'block', fontWeight: 'bold' }}>AMOUNT TO {stockUpdate.type === 'add' ? 'ADD' : 'DEDUCT'}</label><input type="number" min="1" placeholder="0" value={stockUpdate.amount} onChange={(e) => setStockUpdate({...stockUpdate, amount: e.target.value})} className="modern-input" required /></div>
               {stockUpdate.type === 'deduct' && (
-                <div className="modern-group" style={{ marginBottom: '20px' }}><label style={{ color: '#475569', fontSize: '12px', marginBottom: '8px', display: 'block', fontWeight: 'bold' }}>PATIENT RECIPIENT (FOR DISTRIBUTION LOG)</label><input type="text" placeholder="e.g. Juan Dela Cruz" value={stockUpdate.recipient} onChange={(e) => setStockUpdate({...stockUpdate, recipient: e.target.value})} className="modern-input" required /></div>
+                <div className="modern-group" style={{ marginBottom: '20px' }}><label style={{ color: '#475569', fontSize: '12px', marginBottom: '8px', display: 'block', fontWeight: 'bold' }}>PATIENT RECIPIENT (OPTIONAL)</label><input type="text" placeholder="e.g. Juan Dela Cruz" value={stockUpdate.recipient} onChange={(e) => setStockUpdate({...stockUpdate, recipient: e.target.value})} className="modern-input" /></div>
               )}
               <button type="submit" className="btn-green-full" style={{ background: stockUpdate.type === 'add' ? '#0bc25c' : '#ef4444' }}>Confirm Update</button>
             </form>
@@ -422,11 +481,11 @@ function AdminDashboard() {
                 <div style={{ width: '110px', height: '110px', margin: '0 auto 12px auto' }}>{selectedPatient.profilePicture ? <img src={selectedPatient.profilePicture} alt="Profile" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', border: '4px solid #f0fdf4' }} /> : <div style={{ background: '#f8fafc', width: '100%', height: '100%', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '45px', color: '#cbd5e1', border: '4px solid #e2e8f0' }}><FaIdBadge /></div>}</div>
                 <h3 style={{ color: '#1e293b', margin: '0 0 5px 0', fontSize: '17px' }}>{selectedPatient.fullName}</h3>
                 <span style={{ background: '#f0fdf4', color: '#0bc25c', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', border: '1px solid #bbf7d0', display: 'inline-block' }}>
-                  {selectedPatient.idType || 'Barangay ID'}: {selectedPatient.idNumber || 'Verified'}
+                  {selectedPatient.idType || 'Barangay ID'}: {selectedPatient.idNumber || 'Registered'}
                 </span>
               </div>
               <div style={{ flex: 1 }}>
-                <h3 style={{ color: '#1e293b', fontSize: '16px', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}><FaUser style={{ color: '#0bc25c' }}/> Digital Barangay Health Profile</h3>
+                <h3 style={{ color: '#1e293b', fontSize: '16px', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}><FaUser style={{ color: '#0bc25c' }}/> Patient Information</h3>
                 <p style={{ fontSize: '13px', margin: '0 0 8px 0', color: '#334155' }}><FaEnvelope style={{color: '#94a3b8'}}/> <strong>Email:</strong> {selectedPatient.email}</p>
                 <p style={{ fontSize: '13px', margin: '0 0 8px 0', color: '#334155' }}><FaPhoneAlt style={{color: '#94a3b8'}}/> <strong>Contact:</strong> {selectedPatient.contact}</p>
                 <p style={{ fontSize: '13px', margin: '0 0 8px 0', color: '#334155' }}><FaMapMarkerAlt style={{color: '#94a3b8'}}/> <strong>Purok:</strong> {selectedPatient.purok || 'Not Specified'}</p>
@@ -445,14 +504,14 @@ function AdminDashboard() {
       <div className="hide-on-print" style={{ width: '260px', background: '#ffffff', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', position: 'fixed', height: '100vh', top: 0, left: 0 }}>
         <div style={{ padding: '30px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ background: '#0bc25c', color: 'white', padding: '10px', borderRadius: '10px', fontSize: '20px' }}><FaUserShield /></div>
-          <div><h2 style={{ margin: 0, fontSize: '15px', color: '#1e293b', fontWeight: '800' }}>Staff & Nurse</h2><p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>Workstation Panel</p></div>
+          <div><h2 style={{ margin: 0, fontSize: '16px', color: '#1e293b', fontWeight: '800' }}>Admin Panel</h2><p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>Old Cabalan Health</p></div>
         </div>
         <ul style={{ listStyle: 'none', padding: '20px 0', margin: 0, flex: 1 }}>
-          <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', transition: '0.2s', ...getTabStyle('dashboard') }} onClick={() => setActiveTab('dashboard')}><FaHome /> Queue Board</li>
-          <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', transition: '0.2s', ...getTabStyle('vitals') }} onClick={() => setActiveTab('vitals')}><FaHeartbeat /> Cloud EMR & Vitals</li>
-          <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', transition: '0.2s', ...getTabStyle('records') }} onClick={() => setActiveTab('records')}><FaUsers /> Patient Visit Logs</li>
+          <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', transition: '0.2s', ...getTabStyle('dashboard') }} onClick={() => setActiveTab('dashboard')}><FaHome /> Dashboard</li>
+          <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', transition: '0.2s', ...getTabStyle('vitals') }} onClick={() => setActiveTab('vitals')}><FaHeartbeat /> Health & Vitals</li>
+          <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', transition: '0.2s', ...getTabStyle('records') }} onClick={() => setActiveTab('records')}><FaUsers /> Patient Records</li>
           <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '15px', transition: '0.2s', ...getTabStyle('inventory') }} onClick={() => setActiveTab('inventory')}>
-            <div style={{display:'flex', alignItems:'center', gap:'12px'}}><FaBoxOpen /> Meds & Vaccines</div>
+            <div style={{display:'flex', alignItems:'center', gap:'12px'}}><FaBoxOpen /> Inventory</div>
             {lowStockCount > 0 && <span style={{background:'#ef4444', color:'white', fontSize:'10px', padding:'2px 6px', borderRadius:'10px', fontWeight:'bold'}}>{lowStockCount}</span>}
           </li>
           <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '15px', transition: '0.2s', ...getTabStyle('notifications') }} onClick={() => setActiveTab('notifications')}>
@@ -460,7 +519,7 @@ function AdminDashboard() {
             {adminNotifications.length > 0 && <span style={{background:'#ef4444', color:'white', fontSize:'10px', padding:'2px 6px', borderRadius:'10px', fontWeight:'bold'}}>{adminNotifications.length}</span>}
           </li>
           <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', transition: '0.2s', ...getTabStyle('feedback') }} onClick={() => setActiveTab('feedback')}><FaStar /> Patient Feedback</li>
-          <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', transition: '0.2s', ...getTabStyle('analytics') }} onClick={() => setActiveTab('analytics')}><FaChartBar /> Predictive Analytics</li>
+          <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', transition: '0.2s', ...getTabStyle('analytics') }} onClick={() => setActiveTab('analytics')}><FaChartBar /> Reports & Analytics</li>
           <li style={{ padding: '15px 25px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', transition: '0.2s', ...getTabStyle('settings') }} onClick={() => setActiveTab('settings')}><FaCog /> Settings</li>
         </ul>
         <div onClick={handleLogout} style={{ padding: '20px 25px', borderTop: '1px solid #f1f5f9', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: '#ef4444', fontWeight: 'bold', fontSize: '15px' }}><FaSignOutAlt /> Logout</div>
@@ -469,7 +528,7 @@ function AdminDashboard() {
       <div className="printable-area" style={{ flex: 1, marginLeft: '260px', padding: '40px' }}>
         <div className="hide-on-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', flexWrap: 'wrap', gap: '15px' }}>
           <h2 style={{ color: '#1e293b', margin: '0 0 5px 0', fontSize: '24px', fontWeight: '800', textTransform: 'capitalize' }}>
-            {activeTab === 'dashboard' ? 'Centralized Patient Queue Board' : activeTab === 'analytics' ? 'Predictive Community Health Analytics' : `${activeTab} Management`}
+            {activeTab === 'dashboard' ? 'Queue Management' : `${activeTab} Management`}
           </h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {activeTab === 'dashboard' && (
@@ -479,25 +538,47 @@ function AdminDashboard() {
               </div>
             )}
             {activeTab === 'analytics' && <button onClick={() => window.print()} className="btn-green-full" style={{ width: 'auto', padding: '12px 25px', margin:0 }}><FaPrint /> Print Report</button>}
-            {activeTab === 'inventory' && <button onClick={() => { setInventoryItem({ id: '', itemName: '', category: 'Medicine', stock: '', threshold: '20' }); setShowInventoryModal(true); }} className="btn-green-full" style={{ width: 'auto', padding: '12px 25px', background: '#3b82f6', margin:0 }}><FaPlus /> Add Supply</button>}
+            {activeTab === 'inventory' && <button onClick={() => { setInventoryItem({ id: '', itemName: '', category: 'Medicine', stock: '', threshold: '20' }); setShowInventoryModal(true); }} className="btn-green-full" style={{ width: 'auto', padding: '12px 25px', background: '#3b82f6', margin:0 }}><FaPlus /> Add New Item</button>}
             {activeTab === 'settings' && <button onClick={handleSaveSettings} className="btn-green-full" style={{ width: 'auto', padding: '10px 20px', margin:0 }}><FaSave/> Save Settings</button>}
           </div>
         </div>
 
+        {/* ADMIN NOTIFICATIONS WITH SINGLE "X" DELETE BUTTON + CLEAR ALL */}
         {activeTab === 'notifications' && (
           <div className="dash-card" style={{ padding: '0', overflow: 'hidden' }}>
             <div style={{ padding: '20px 25px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ margin: '0 0 5px 0', fontSize: '16px', color: '#1e293b' }}>Admin Notifications</h3>
               {adminNotifications.length > 0 && (
-                <button onClick={() => { set(ref(database, 'notifications/admin'), null); showAlert("All notifications cleared.", "success"); }} style={{background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', padding: '5px 10px', borderRadius: '5px', cursor: 'pointer', fontSize: '12px'}}>Clear All</button>
+                <button onClick={() => { set(ref(database, 'notifications/admin'), null); showAlert("All notifications cleared.", "success"); }} style={{background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', padding: '5px 10px', borderRadius: '5px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold'}}>
+                  Clear All
+                </button>
               )}
             </div>
             <div>
               {adminNotifications.length === 0 ? <p style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>No new notifications.</p> :
                 adminNotifications.map(notif => (
-                  <div key={notif.id} onClick={() => handleNotificationClick(notif.date, notif.appId)} style={{ padding: '20px', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: '15px', cursor: 'pointer', alignItems: 'center' }}>
-                    <div style={{ background: '#eff6ff', color: '#3b82f6', padding: '15px', borderRadius: '50%', fontSize: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><FaRegCalendarAlt /></div>
-                    <div><h4 style={{ margin: '0 0 5px 0', fontSize: '15px', color: '#1e293b' }}>{notif.title}</h4><p style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#64748b' }}>{notif.message}</p><span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'bold' }}>{notif.timestamp}</span></div>
+                  <div 
+                    key={notif.id} 
+                    onClick={() => handleNotificationClick(notif.date, notif.appId)} 
+                    style={{ padding: '20px 25px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', position: 'relative' }}
+                    onMouseOver={(e) => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseOut={(e) => e.currentTarget.style.background = 'white'}
+                  >
+                    <div style={{ display: 'flex', gap: '15px', alignItems: 'center', paddingRight: '25px' }}>
+                      <div style={{ background: '#eff6ff', color: '#3b82f6', padding: '15px', borderRadius: '50%', fontSize: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><FaRegCalendarAlt /></div>
+                      <div>
+                        <h4 style={{ margin: '0 0 5px 0', fontSize: '15px', color: '#1e293b' }}>{notif.title}</h4>
+                        <p style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#64748b' }}>{notif.message}</p>
+                        <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'bold' }}>{notif.timestamp}</span>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={(e) => handleDeleteSingleNotification(e, notif.id)} 
+                      title="Delete notification"
+                      style={{ position: 'absolute', top: '15px', right: '20px', background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '16px', cursor: 'pointer', padding: '5px' }}
+                    >
+                      <FaTimes />
+                    </button>
                   </div>
                 ))
               }
@@ -508,14 +589,12 @@ function AdminDashboard() {
         {activeTab === 'dashboard' && (
           <>
             <div className="dash-hero hide-on-print" style={{ marginBottom: '25px', textAlign: 'center', padding: '35px' }}>
-              <h3 style={{ margin: '0 0 10px 0', color: 'rgba(255,255,255,0.9)', fontSize: '15px', textTransform: 'uppercase' }}>Currently Serving (In Consultation)</h3>
+              <h3 style={{ margin: '0 0 10px 0', color: 'rgba(255,255,255,0.9)', fontSize: '15px', textTransform: 'uppercase' }}>Currently Serving</h3>
               <div style={{ fontSize: '72px', fontWeight: '900', lineHeight: '1' }}>{currentServing}</div>
             </div>
 
-            {/* VISUAL KANBAN BOARD VIEW */}
             {queueViewMode === 'kanban' ? (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '15px', marginBottom: '30px' }}>
-                {/* COLUMN 1: CALL NEXT / WAITING */}
                 <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '15px' }}>
                   <h4 style={{ margin: '0 0 12px 0', color: '#d97706', fontSize: '13px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between' }}>
                     <span>🟡 Call Next (Waiting)</span><span>{kanbanCallNext.length}</span>
@@ -533,7 +612,6 @@ function AdminDashboard() {
                   ))}
                 </div>
 
-                {/* COLUMN 2: IN CONSULTATION */}
                 <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '14px', padding: '15px' }}>
                   <h4 style={{ margin: '0 0 12px 0', color: '#2563eb', fontSize: '13px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between' }}>
                     <span>🔵 In Consultation</span><span>{kanbanInConsult.length}</span>
@@ -542,12 +620,11 @@ function AdminDashboard() {
                     <div key={app.id} style={{ background: 'white', padding: '12px', borderRadius: '10px', marginBottom: '10px', borderLeft: '4px solid #3b82f6', boxShadow: '0 2px 6px rgba(0,0,0,0.04)' }}>
                       <strong style={{ fontSize: '16px', color: '#2563eb' }}>{app.queueNumber}</strong>
                       <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#334155' }}>{usersData[app.patientId]?.fullName}</div>
-                      <div style={{ fontSize: '11px', color: '#64748b' }}>With Physician / EMR Open</div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>With Physician</div>
                     </div>
                   ))}
                 </div>
 
-                {/* COLUMN 3: COMPLETED */}
                 <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '14px', padding: '15px' }}>
                   <h4 style={{ margin: '0 0 12px 0', color: '#16a34a', fontSize: '13px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between' }}>
                     <span>🟢 Completed</span><span>{kanbanCompleted.length}</span>
@@ -556,12 +633,11 @@ function AdminDashboard() {
                     <div key={app.id} style={{ background: 'white', padding: '12px', borderRadius: '10px', marginBottom: '10px', borderLeft: '4px solid #16a34a', boxShadow: '0 2px 6px rgba(0,0,0,0.04)' }}>
                       <strong style={{ fontSize: '15px', color: '#16a34a' }}>{app.queueNumber}</strong>
                       <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#334155' }}>{usersData[app.patientId]?.fullName}</div>
-                      <div style={{ fontSize: '11px', color: '#64748b' }}>Cloud EMR Saved</div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>Completed</div>
                     </div>
                   ))}
                 </div>
 
-                {/* COLUMN 4: NO SHOW */}
                 <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '14px', padding: '15px' }}>
                   <h4 style={{ margin: '0 0 12px 0', color: '#ef4444', fontSize: '13px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between' }}>
                     <span>🔴 No Show</span><span>{kanbanNoShow.length}</span>
@@ -576,7 +652,6 @@ function AdminDashboard() {
                 </div>
               </div>
             ) : (
-              /* STANDARD LIST VIEW */
               <div className="dash-card hide-on-print" style={{ padding: '0', overflow: 'hidden' }}>
                 <div style={{ padding: '20px 25px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                   <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Live Patient Queue</h3>
@@ -600,9 +675,9 @@ function AdminDashboard() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                   <thead>
                     <tr style={{ background: '#ffffff', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0' }}>
-                      <th style={{ padding: '15px 25px' }}>Queue, Date & Stage</th>
-                      <th style={{ padding: '15px 25px' }}>Patient & Service Details</th>
-                      <th style={{ padding: '15px 25px' }}>Queue Board Actions</th>
+                      <th style={{ padding: '15px 25px' }}>Queue, Date & Time</th>
+                      <th style={{ padding: '15px 25px' }}>Patient Details</th>
+                      <th style={{ padding: '15px 25px' }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -618,10 +693,9 @@ function AdminDashboard() {
                           <tr id={`row-${app.id}`} key={app.id} style={{ borderBottom: '1px solid #f1f5f9', background: highlightedAppId === app.id ? '#dcfce7' : (app.isSkipped ? '#fef2f2' : 'white') }}>
                             <td style={{ padding: '20px 25px' }}>
                               <strong style={{ color: app.isSkipped ? '#ef4444' : '#0bc25c', fontSize: '20px', display: 'block' }}>{app.queueNumber}</strong>
-                              <span style={{ background: app.isSkipped ? '#ef4444' : (app.queueNumber === currentServing ? '#3b82f6' : '#f0fdf4'), color: app.isSkipped || app.queueNumber === currentServing ? 'white' : '#166534', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
-                                {app.isSkipped ? 'NO SHOW' : (app.queueNumber === currentServing ? 'IN CONSULTATION' : 'WAITING')}
-                              </span>
-                              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Date: {app.appointmentDate} | {formatTimeToAMPM(app.preferredTime)}</div>
+                              {app.isSkipped && <span style={{ background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 6px', borderRadius: '10px' }}>SKIPPED</span>}
+                              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Date: {app.appointmentDate}</div>
+                              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Requested: {formatTimeToAMPM(app.preferredTime)}</div>
                             </td>
                             <td style={{ padding: '20px 25px' }}>
                               <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '14px' }}>{usersData[app.patientId]?.fullName || "Unknown"}</div>
@@ -632,7 +706,7 @@ function AdminDashboard() {
                                   <FaExclamationTriangle style={{marginRight: '3px'}}/> {decryptData(usersData[app.patientId].healthMetrics.conditions)}
                                 </div>
                               )}
-                              <button onClick={() => openPatientProfile(app.patientId)} style={{ background: 'none', border: 'none', color: '#3b82f6', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', padding: '0', marginTop: '6px', fontWeight: 'bold' }}><FaEye /> View Digital Passport</button>
+                              <button onClick={() => openPatientProfile(app.patientId)} style={{ background: 'none', border: 'none', color: '#3b82f6', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', padding: '0', marginTop: '6px', fontWeight: 'bold' }}><FaEye /> View Profile</button>
                             </td>
                             <td style={{ padding: '20px 25px' }}>
                               <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
@@ -641,8 +715,8 @@ function AdminDashboard() {
                                 ) : (
                                   <>
                                     <button onClick={() => openTimeModal(app.id, app.patientId, app.queueNumber)} style={{ background: '#eff6ff', color: '#3b82f6', border: '1px solid #bfdbfe', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}><FaClock /> Time</button>
-                                    <button onClick={() => callPatient(app.queueNumber, app.patientId, app.id)} style={{ background: '#fffbeb', color: '#d97706', border: '1px solid #fde68a', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}><FaBullhorn /> Call Next</button>
-                                    <button onClick={() => skipPatient(app.id, app.patientId, app.queueNumber)} style={{ background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}><FaStepForward /> No Show</button>
+                                    <button onClick={() => callPatient(app.queueNumber, app.patientId, app.id)} style={{ background: '#fffbeb', color: '#d97706', border: '1px solid #fde68a', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}><FaBullhorn /> Call</button>
+                                    <button onClick={() => skipPatient(app.id, app.patientId, app.queueNumber)} style={{ background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}><FaStepForward /> Skip</button>
                                   </>
                                 )}
                               </div>
@@ -660,21 +734,21 @@ function AdminDashboard() {
 
         {activeTab === 'vitals' && (
           <div className="dash-card hide-on-print" style={{ padding: '0', overflow: 'hidden' }}>
-             <div style={{ padding: '20px 25px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}><h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Cloud EMR Patient Registry & Triage Vitals</h3></div>
+             <div style={{ padding: '20px 25px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}><h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Registered Patients Vitals</h3></div>
              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                <thead><tr style={{ background: '#ffffff', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0' }}><th style={{ padding: '15px 25px' }}>Patient & Barangay ID</th><th style={{ padding: '15px 25px' }}>Last Updated</th><th style={{ padding: '15px 25px' }}>Action</th></tr></thead>
+                <thead><tr style={{ background: '#ffffff', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0' }}><th style={{ padding: '15px 25px' }}>Patient Name</th><th style={{ padding: '15px 25px' }}>Last Updated</th><th style={{ padding: '15px 25px' }}>Action</th></tr></thead>
                 <tbody>
                   {patientList.map((user) => (
                     <tr key={user.id} style={{ borderBottom: '1px solid #f1f5f9', background: 'white' }}>
                       <td style={{ padding: '20px 25px' }}>
                         <strong style={{ color: '#1e293b', display: 'block', fontSize: '15px' }}>{user.fullName}</strong>
-                        <span style={{ fontSize: '12px', color: '#64748b' }}>{user.idType || 'Barangay ID'}: {user.idNumber || 'Registered'} | {user.purok}</span>
+                        <span style={{ fontSize: '12px', color: '#64748b' }}>{user.purok}</span>
                       </td>
                       <td style={{ padding: '20px 25px' }}>{user.healthMetrics?.lastUpdated ? <span style={{ color: '#16a34a', fontWeight: '600', fontSize: '14px' }}>{user.healthMetrics.lastUpdated}</span> : <span style={{ color: '#94a3b8', fontSize: '13px' }}>No records yet</span>}</td>
                       <td style={{ padding: '20px 25px' }}>
                         <div style={{ display: 'flex', gap: '8px' }}>
-                          <button onClick={() => openVitalsModal(user.id, user.fullName)} style={{ background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', padding: '8px 15px', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}><FaHeartbeat /> Record Vitals</button>
-                          <button onClick={() => openPatientProfile(user.id)} style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', padding: '8px 15px', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}><FaEye /> Health Passport</button>
+                          <button onClick={() => openVitalsModal(user.id, user.fullName)} style={{ background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', padding: '8px 15px', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}><FaHeartbeat /> Update Vitals & Conditions</button>
+                          <button onClick={() => openPatientProfile(user.id)} style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', padding: '8px 15px', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}><FaEye /> View Profile</button>
                         </div>
                       </td>
                     </tr>
@@ -687,19 +761,27 @@ function AdminDashboard() {
         {activeTab === 'inventory' && (
           <>
             <div className="dash-card hide-on-print" style={{ padding: '0', overflow: 'hidden', marginBottom: '25px' }}>
-               <div style={{ padding: '20px 25px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}><h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Medicine & Vaccine Inventory Tracker</h3></div>
+               <div style={{ padding: '20px 25px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}><h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Health Center Supplies</h3></div>
                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                   <thead><tr style={{ background: '#ffffff', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0' }}><th style={{ padding: '15px 25px' }}>Item Details</th><th style={{ padding: '15px 25px' }}>Stock Level</th><th style={{ padding: '15px 25px' }}>Status</th><th style={{ padding: '15px 25px' }}>Manage Stock</th></tr></thead>
                   <tbody>
-                    {inventory.length === 0 ? <tr><td colSpan="4" style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No items in inventory.</td></tr> : inventory.map((item) => (
+                    {inventoryForecast.length === 0 ? <tr><td colSpan="4" style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No items in inventory.</td></tr> : inventoryForecast.map((item) => (
                       <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9', background: 'white' }}>
                         <td style={{ padding: '20px 25px' }}><strong style={{ color: '#1e293b', display: 'block', fontSize: '15px' }}>{item.itemName}</strong><div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '5px' }}><FaBoxOpen /> {item.category}</div></td>
                         <td style={{ padding: '20px 25px' }}><span style={{ fontSize: '20px', fontWeight: '800', color: item.stock <= item.threshold ? '#ef4444' : '#1e293b' }}>{item.stock}</span><span style={{ fontSize: '12px', color: '#94a3b8', marginLeft: '5px' }}>units</span></td>
-                        <td style={{ padding: '20px 25px' }}>{item.stock <= 0 ? <span style={{ background: '#fef2f2', color: '#ef4444', padding: '4px 10px', borderRadius: '15px', fontSize: '11px', fontWeight: 'bold', border: '1px solid #fecaca' }}>OUT OF STOCK</span> : item.stock <= item.threshold ? <span style={{ background: '#fffbeb', color: '#d97706', padding: '4px 10px', borderRadius: '15px', fontSize: '11px', fontWeight: 'bold', border: '1px solid #fde68a' }}>LOW STOCK</span> : <span style={{ background: '#dcfce7', color: '#16a34a', padding: '4px 10px', borderRadius: '15px', fontSize: '11px', fontWeight: 'bold', border: '1px solid #bbf7d0' }}>IN STOCK</span>}</td>
+                        <td style={{ padding: '20px 25px' }}>
+                          {item.stock <= 0 ? (
+                            <span style={{ background: '#fef2f2', color: '#ef4444', padding: '4px 10px', borderRadius: '15px', fontSize: '11px', fontWeight: 'bold', border: '1px solid #fecaca' }}>OUT OF STOCK</span>
+                          ) : item.stock <= item.threshold ? (
+                            <span style={{ background: '#fffbeb', color: '#d97706', padding: '4px 10px', borderRadius: '15px', fontSize: '11px', fontWeight: 'bold', border: '1px solid #fde68a' }}>LOW STOCK</span>
+                          ) : (
+                            <span style={{ background: '#dcfce7', color: '#16a34a', padding: '4px 10px', borderRadius: '15px', fontSize: '11px', fontWeight: 'bold', border: '1px solid #bbf7d0' }}>IN STOCK</span>
+                          )}
+                        </td>
                         <td style={{ padding: '20px 25px' }}>
                           <div style={{ display: 'flex', gap: '8px' }}>
                             <button onClick={() => { setStockUpdate({ id: item.id, itemName: item.itemName, currentStock: item.stock, amount: '', type: 'add', recipient: '' }); setShowStockModal(true); }} style={{ background: '#dcfce7', color: '#16a34a', border: '1px solid #bbf7d0', width: '35px', height: '35px', borderRadius: '8px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center' }} title="Add Stock"><FaPlus /></button>
-                            <button onClick={() => { setStockUpdate({ id: item.id, itemName: item.itemName, currentStock: item.stock, amount: '', type: 'deduct', recipient: '' }); setShowStockModal(true); }} style={{ background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', width: '35px', height: '35px', borderRadius: '8px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center' }} title="Dispense to Patient"><FaMinus /></button>
+                            <button onClick={() => { setStockUpdate({ id: item.id, itemName: item.itemName, currentStock: item.stock, amount: '', type: 'deduct', recipient: '' }); setShowStockModal(true); }} style={{ background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', width: '35px', height: '35px', borderRadius: '8px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center' }} title="Deduct Stock"><FaMinus /></button>
                             <button onClick={() => { setInventoryItem(item); setShowInventoryModal(true); }} style={{ background: 'white', color: '#64748b', border: '1px solid #cbd5e1', padding: '0 15px', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}>Edit</button>
                             <button onClick={() => deleteInventoryItem(item.id, item.itemName)} style={{ background: 'white', color: '#ef4444', border: '1px solid #fecaca', width: '35px', height: '35px', borderRadius: '8px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center' }} title="Delete Item"><FaTrash /></button>
                           </div>
@@ -710,19 +792,18 @@ function AdminDashboard() {
                 </table>
             </div>
 
-            {/* LINKED PATIENT MEDICINE DISTRIBUTION LOGS */}
             <div className="dash-card hide-on-print" style={{ padding: '0', overflow: 'hidden' }}>
               <div style={{ padding: '20px 25px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Patient Medicine & Vaccine Distribution Logs</h3>
+                <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Medicine Distribution Logs</h3>
               </div>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                 <thead><tr style={{ background: '#ffffff', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0' }}><th style={{ padding: '15px 25px' }}>Timestamp</th><th style={{ padding: '15px 25px' }}>Dispensed Item</th><th style={{ padding: '15px 25px' }}>Patient Recipient</th><th style={{ padding: '15px 25px' }}>Qty</th></tr></thead>
                 <tbody>
-                  {distributionLogs.length === 0 ? <tr><td colSpan="4" style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>No medicine distribution logs recorded yet.</td></tr> : distributionLogs.slice(0, 15).map((log) => (
+                  {distributionLogs.length === 0 ? <tr><td colSpan="4" style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>No distribution logs recorded yet.</td></tr> : distributionLogs.slice(0, 15).map((log) => (
                     <tr key={log.id} style={{ borderBottom: '1px solid #f1f5f9', background: 'white', fontSize: '13px' }}>
                       <td style={{ padding: '15px 25px', color: '#64748b' }}>{log.timestamp}</td>
                       <td style={{ padding: '15px 25px', fontWeight: 'bold', color: '#1e293b' }}>{log.itemName}</td>
-                      <td style={{ padding: '15px 25px', color: '#334155' }}>{log.patientName} ({log.queueNumber})</td>
+                      <td style={{ padding: '15px 25px', color: '#334155' }}>{log.patientName}</td>
                       <td style={{ padding: '15px 25px', fontWeight: 'bold', color: '#0bc25c' }}>{log.quantity} unit(s)</td>
                     </tr>
                   ))}
@@ -735,11 +816,11 @@ function AdminDashboard() {
         {activeTab === 'records' && (
           <div className="dash-card hide-on-print" style={{ padding: '0', overflow: 'hidden' }}>
              <div style={{ padding: '20px 25px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-               <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Cloud EMR History Log</h3>
+               <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Clinic History Log</h3>
                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><FaFilter color="#94a3b8" /><select value={recordFilter} onChange={(e) => setRecordFilter(e.target.value)} className="modern-input" style={{ padding: '8px 12px', background: 'white' }}><option value="All">All Categories</option><option value="Non-Senior/Non-PWD">Non-Senior / Non-PWD</option><option value="Senior Citizen">Senior Citizen</option><option value="Pregnant">Pregnant</option><option value="PWD">PWD</option></select></div>
              </div>
              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                <thead><tr style={{ background: '#ffffff', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0' }}><th style={{ padding: '15px 25px' }}>Date & Time Booked</th><th style={{ padding: '15px 25px' }}>Patient Details</th><th style={{ padding: '15px 25px' }}>Service & Follow-Up</th><th style={{ padding: '15px 25px' }}>Status</th></tr></thead>
+                <thead><tr style={{ background: '#ffffff', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0' }}><th style={{ padding: '15px 25px' }}>Date & Time Booked</th><th style={{ padding: '15px 25px' }}>Patient Details</th><th style={{ padding: '15px 25px' }}>Service & Reason</th><th style={{ padding: '15px 25px' }}>Status</th></tr></thead>
                 <tbody>
                   {filteredRecords.length === 0 ? <tr><td colSpan="4" style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No records found.</td></tr> : filteredRecords.map((app) => (
                     <tr key={app.id} style={{ borderBottom: '1px solid #f1f5f9', background: 'white' }}>
@@ -752,12 +833,11 @@ function AdminDashboard() {
                               <FaExclamationTriangle style={{marginRight: '3px'}}/> {decryptData(usersData[app.patientId].healthMetrics.conditions)}
                            </div>
                         )}
-                        <button onClick={() => openPatientProfile(app.patientId)} style={{ background: 'none', border: 'none', color: '#3b82f6', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', padding: '0', fontWeight: 'bold', marginTop: '6px' }}><FaEye /> View Passport</button>
+                        <button onClick={() => openPatientProfile(app.patientId)} style={{ background: 'none', border: 'none', color: '#3b82f6', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', padding: '0', fontWeight: 'bold', marginTop: '6px' }}><FaEye /> View Info</button>
                       </td>
                       <td style={{ padding: '20px 25px' }}>
-                        <div style={{ fontWeight: '700', fontSize: '14px', color: '#00796b' }}>{app.healthService || app.serviceType}</div>
+                        <div style={{ fontWeight: '700', fontSize: '14px', color: '#334155' }}>{app.healthService || app.serviceType}</div>
                         {app.notes && <div style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic', marginTop: '4px' }}>{app.notes}</div>}
-                        {app.followUpDate && <div style={{ fontSize: '11px', color: '#2563eb', fontWeight: 'bold', marginTop: '4px' }}>Follow-Up: {app.followUpDate}</div>}
                       </td>
                       <td style={{ padding: '20px 25px' }}><span style={{ background: '#dcfce7', color: '#16a34a', padding: '6px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold' }}>Completed</span></td>
                     </tr>
@@ -806,27 +886,26 @@ function AdminDashboard() {
           <div>
             <div className="print-header" style={{ display: 'none', textAlign: 'center', marginBottom: '30px' }}>
               <h2 style={{ margin: 0 }}>Barangay Old Cabalan Health Center</h2>
-              <p style={{ margin: '5px 0' }}>MediQueue: Predictive Community Health Analytics & Smart Records Report</p>
+              <p style={{ margin: '5px 0' }}>Official Medical & Predictive Analytics Report</p>
               <p style={{ fontSize: '12px', color: '#64748b' }}>Generated on: {new Date().toLocaleDateString()}</p>
               <hr style={{ border: '1px solid #e2e8f0', margin: '20px 0' }} />
             </div>
 
-            {/* PREDICTIVE COMMUNITY HEALTH ANALYTICS CARDS */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '18px', marginBottom: '20px' }}>
               <div className="dash-card" style={{ marginBottom: 0, borderLeft: '5px solid #a855f7' }}>
-                <span style={{ fontSize: '11px', fontWeight: '800', color: '#7e22ce', display: 'flex', alignItems: 'center', gap: '6px' }}><FaBrain /> AI 30-DAY DEMAND FORECAST</span>
-                <h2 style={{ margin: '8px 0 4px 0', fontSize: '26px', color: '#1e293b' }}>~{predictedNextMonthVolume} Patients</h2>
-                <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>Projected next-month consultation volume (+28% seasonal trend)</p>
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#7e22ce', display: 'flex', alignItems: 'center', gap: '6px' }}><FaBrain /> 30-DAY DEMAND FORECAST</span>
+                <h2 style={{ margin: '8px 0 4px 0', fontSize: '26px', color: '#1e293b' }}>~{predictedNextMonthVolume} Consults</h2>
+                <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>Based on {avgDailyAppointments} avg visits/day</p>
               </div>
               <div className="dash-card" style={{ marginBottom: 0, borderLeft: '5px solid #ef4444' }}>
-                <span style={{ fontSize: '11px', fontWeight: '800', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}><FaExclamationTriangle /> PREDICTIVE HOTSPOT WATCH</span>
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}><FaExclamationTriangle /> PRIORITY PUROK WATCH</span>
                 <h2 style={{ margin: '8px 0 4px 0', fontSize: '26px', color: '#1e293b' }}>{topHotspot.purok}</h2>
-                <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>Highest case cluster ({topHotspot.cases} recorded visits). Priority for BHW field visit.</p>
+                <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>Highest clinic activity ({topHotspot.cases} visits)</p>
               </div>
               <div className="dash-card" style={{ marginBottom: 0, borderLeft: '5px solid #0bc25c' }}>
-                <span style={{ fontSize: '11px', fontWeight: '800', color: '#166534', display: 'flex', alignItems: 'center', gap: '6px' }}><FaPills /> MEDICINE RESTOCK FORECAST</span>
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#166534', display: 'flex', alignItems: 'center', gap: '6px' }}><FaPills /> INVENTORY STATUS</span>
                 <h2 style={{ margin: '8px 0 4px 0', fontSize: '26px', color: '#1e293b' }}>{lowStockCount > 0 ? `${lowStockCount} Low Items` : 'Optimal Stock'}</h2>
-                <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>Predicted high demand for Hypertension & Pediatric Vitamins</p>
+                <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>{distributionLogs.length} total medicines dispensed</p>
               </div>
             </div>
             
@@ -844,25 +923,25 @@ function AdminDashboard() {
 
             <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '20px' }}>
               <div className="dash-card" style={{ flex: 2, minWidth: '400px', pageBreakInside: 'avoid' }}>
-                <h3 style={{ color: '#1e293b', marginBottom: '25px', fontSize: '18px' }}>Appointments Per Priority Category</h3>
+                <h3 style={{ color: '#1e293b', marginBottom: '25px', fontSize: '18px' }}>Appointments Per Category</h3>
                 <ResponsiveContainer width="100%" height={300}><BarChart data={processServiceData()} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" tick={{fontSize: 12}} /><YAxis allowDecimals={false} /><ChartTooltip cursor={{fill: '#f8fafc'}} /><Legend /><Bar dataKey="total" name="Total Patients" fill="#0bc25c" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer>
               </div>
               <div className="dash-card" style={{ flex: 1, minWidth: '300px', pageBreakInside: 'avoid' }}>
-                <h3 style={{ color: '#1e293b', marginBottom: '25px', textAlign: 'center', fontSize: '18px' }}>Consultation Status</h3>
+                <h3 style={{ color: '#1e293b', marginBottom: '25px', textAlign: 'center', fontSize: '18px' }}>Appointment Status</h3>
                 <ResponsiveContainer width="100%" height={300}><PieChart><Pie data={processStatusData()} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value" label>{processStatusData().map((entry, index) => <Cell key={`cell-${index}`} fill={['#f59e0b', '#10b981'][index % 2]} />)}</Pie><ChartTooltip /><Legend /></PieChart></ResponsiveContainer>
               </div>
             </div>
             
             <div className="dash-card" style={{ width: '100%', marginBottom: '20px', pageBreakInside: 'avoid' }}>
-              <h3 style={{ color: '#1e293b', marginBottom: '5px', fontSize: '18px' }}>Predictive Community Health Hotspot & Purok Forecast</h3>
-              <p style={{ color: '#64748b', fontSize: '13px', marginBottom: '25px' }}>Current recorded cases vs. AI-Projected Next Month Demand by Purok.</p>
-              <ResponsiveContainer width="100%" height={300}><BarChart data={purokStats} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="purok" tick={{fontSize: 12}} /><YAxis allowDecimals={false} /><ChartTooltip cursor={{fill: '#fef2f2'}} /><Legend /><Bar dataKey="cases" name="Current Recorded Cases" fill="#ef4444" radius={[6, 6, 0, 0]} /><Bar dataKey="predictedNextMonth" name="AI Projected Next Month" fill="#a855f7" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer>
+              <h3 style={{ color: '#1e293b', marginBottom: '5px', fontSize: '18px' }}>Disease Hotspot & Purok Forecast</h3>
+              <p style={{ color: '#64748b', fontSize: '13px', marginBottom: '25px' }}>Recorded visits vs. Projected Next Month Demand by Purok.</p>
+              <ResponsiveContainer width="100%" height={300}><BarChart data={purokStats} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="purok" tick={{fontSize: 12}} /><YAxis allowDecimals={false} /><ChartTooltip cursor={{fill: '#fef2f2'}} /><Legend /><Bar dataKey="cases" name="Recorded Visits" fill="#ef4444" radius={[6, 6, 0, 0]} /><Bar dataKey="predictedNextMonth" name="Projected Next Month" fill="#a855f7" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer>
             </div>
 
             <div className="dash-card" style={{ padding: '0', overflow: 'hidden', pageBreakInside: 'avoid' }}>
               <div style={{ padding: '20px 25px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Detailed Cloud EMR Medical Log</h3>
+                  <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Detailed Patient Medical Log</h3>
                   <p style={{ margin: '5px 0 0 0', fontSize: '12px', color: '#64748b' }}>Showing data from {reportStartDate} to {reportEndDate}</p>
                 </div>
               </div>
@@ -872,7 +951,7 @@ function AdminDashboard() {
                     <th style={{ padding: '15px 25px' }}>Date</th>
                     <th style={{ padding: '15px 25px' }}>Patient Name</th>
                     <th style={{ padding: '15px 25px' }}>Service</th>
-                    <th style={{ padding: '15px 25px' }}>Doctor's Diagnosis (Decrypted)</th>
+                    <th style={{ padding: '15px 25px' }}>Doctor's Diagnosis</th>
                   </tr>
                 </thead>
                 <tbody>

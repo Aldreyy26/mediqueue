@@ -2,14 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth, database } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { ref, onValue, query, orderByChild, equalTo, update, push } from 'firebase/database';
+import { ref, onValue, query, orderByChild, equalTo, update, push, set } from 'firebase/database';
 import { 
-  FaBell, FaSignOutAlt, FaUser, FaRegCalendarAlt, FaFileAlt, 
-  FaClipboardList, FaStethoscope, FaHeartbeat, 
-  FaRegListAlt, FaHeart, FaMapMarkerAlt, FaLightbulb, FaChevronRight,
-  FaTimesCircle, FaCheckCircle, FaInfoCircle, FaExclamationTriangle, FaChartLine, FaTimes,
-  FaArrowLeft, FaCamera, FaIdBadge, FaEnvelope, FaPhoneAlt, FaHome, FaStar, FaHistory, FaClock, FaBullhorn, FaThermometerHalf, FaTint,
-  FaRobot, FaPaperPlane, FaIdCard, FaSyringe, FaPills, FaSms
+  FaBell, FaSignOutAlt, FaUser, FaRegCalendarAlt, 
+  FaStethoscope, FaHeartbeat, FaRegListAlt, FaHeart, FaMapMarkerAlt, 
+  FaChevronRight, FaTimesCircle, FaCheckCircle, FaExclamationTriangle, 
+  FaChartLine, FaTimes, FaArrowLeft, FaCamera, FaIdBadge, 
+  FaStar, FaHistory, FaClock, FaBullhorn, FaThermometerHalf, FaTint,
+  FaRobot, FaPaperPlane, FaIdCard, FaSms
 } from 'react-icons/fa';
 import BookingModal from './BookingModal';
 import Records from './Records';
@@ -47,7 +47,6 @@ function Dashboard() {
   const [alertBox, setAlertBox] = useState({ show: false, message: '', type: 'info' });
   const [confirmBox, setConfirmBox] = useState({ show: false, message: '', onConfirm: null });
 
-  // DIGITAL HEALTH PASSPORT EDIT STATES
   const [passportEdit, setPassportEdit] = useState({ allergies: '', immunizations: '', medicalHistory: '' });
   const [isEditingPassport, setIsEditingPassport] = useState(false);
 
@@ -57,7 +56,7 @@ function Dashboard() {
   const [aiMessages, setAiMessages] = useState([
     {
       sender: 'bot',
-      text: 'Hello! I am "Ka-Health", your 24/7 Conversational AI Assistant for Barangay Old Cabalan Health Center.\n\nYou can ask me in English or Tagalog about:\n• Symptoms & Vital Signs Triage\n• Clinic Operating Hours & Immunization Days\n• Live Medicine Availability & Distribution Schedules\n• Required Documents & Step-by-Step Booking Guide',
+      text: 'Hello! I am "Ka-Health", your 24/7 AI Health Assistant for Barangay Old Cabalan Health Center.\n\nYou can ask me in English or Tagalog about:\n• Symptoms & Vital Signs Check\n• Clinic Operating Hours & Immunization Days\n• Medicine Availability & Schedules\n• Step-by-Step Booking Guide',
       urgency: null
     }
   ]);
@@ -82,13 +81,12 @@ function Dashboard() {
           setPassportEdit({
             allergies: val.healthPassport?.allergies || 'None reported',
             immunizations: val.healthPassport?.immunizations || 'Standard Barangay Immunization',
-            medicalHistory: val.healthPassport?.medicalHistory || 'No major past illnesses'
+            medicalHistory: val.healthPassport?.medicalHistory || 'None reported'
           });
         });
         onValue(ref(database, 'liveQueue/current'), (snapshot) => { if (snapshot.exists()) setCurrentServing(snapshot.val()); });
         onValue(ref(database, 'settings'), (snapshot) => { if (snapshot.exists()) setSystemSettings(snapshot.val()); });
         
-        // Listen to all appointments for AI Wait Time Forecasting
         onValue(ref(database, 'appointments'), (snapshot) => {
           if (snapshot.exists()) {
             const allList = Object.keys(snapshot.val()).map(key => ({ id: key, ...snapshot.val()[key] }));
@@ -99,7 +97,6 @@ function Dashboard() {
           }
         });
 
-        // Listen to live medicine inventory for Ka-Health Chatbot
         onValue(ref(database, 'inventory'), (snapshot) => {
           if (snapshot.exists()) {
             setInventoryList(Object.keys(snapshot.val()).map(key => ({ id: key, ...snapshot.val()[key] })));
@@ -143,16 +140,15 @@ function Dashboard() {
     return () => unsubscribe();
   }, [navigate]);
 
-  // AI PREDICTIVE QUEUEING & WAIT TIME FORECASTING CALCULATION
+  // AI-FORECASTED WAIT TIME & QUEUE POSITION TRACKER
   const computeQueueForecast = () => {
     if (myTicket === "None" || !activeApptObj) {
-      return { patientsAhead: 0, estWaitMins: 0, paceLabel: 'No Active Ticket' };
+      return { patientsAhead: 0, estWaitMins: 0, paceLabel: 'No active ticket' };
     }
     if (currentServing === myTicket) {
-      return { patientsAhead: 0, estWaitMins: 0, paceLabel: 'Now Serving in Consultation Room' };
+      return { patientsAhead: 0, estWaitMins: 0, paceLabel: 'Now being served' };
     }
 
-    // Parse ticket numbers (e.g. P-005 -> 5, Q-012 -> 12)
     const parseNum = (str) => {
       if (!str || str === "None") return 0;
       const match = str.match(/\d+/);
@@ -166,11 +162,11 @@ function Dashboard() {
     if (currentNum > 0 && myNum > currentNum) {
       aheadCount = myNum - currentNum;
     } else {
-      const idx = allTodayAppointments.findIndex(a => a.queueNumber === myTicket);
+      const sortedToday = [...allTodayAppointments].sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+      const idx = sortedToday.findIndex(a => a.queueNumber === myTicket);
       aheadCount = idx >= 0 ? idx : Math.max(1, myNum - 1);
     }
 
-    // Dynamic ML-inspired wait time formula based on service duration & triage severity
     const basePace = activeApptObj.estDurationMins || 10;
     const priorityFactor = myTicket.startsWith('P-') ? 0.8 : 1.0;
     const estWaitMins = Math.max(3, Math.round(aheadCount * basePace * priorityFactor));
@@ -178,7 +174,7 @@ function Dashboard() {
     return {
       patientsAhead: aheadCount,
       estWaitMins,
-      paceLabel: aheadCount <= 2 ? 'Almost Your Turn (Prepare to Proceed)' : 'Normal Consultation Pace (~10-12 mins/patient)'
+      paceLabel: aheadCount <= 2 ? 'Almost your turn — please prepare' : 'Estimated based on live consultation pace'
     };
   };
 
@@ -188,7 +184,7 @@ function Dashboard() {
     if (myTicket !== "None" && currentServing === myTicket) {
       setShowCallPopup(true);
       setShowNearTurnPopup(false);
-    } else if (myTicket !== "None" && queueForecast.patientsAhead > 0 && queueForecast.patientsAhead <= 2 && !nearTurnDismissed) {
+    } else if (myTicket !== "None" && currentServing !== "None" && queueForecast.patientsAhead > 0 && queueForecast.patientsAhead <= 2 && !nearTurnDismissed) {
       setShowNearTurnPopup(true);
     }
   }, [currentServing, myTicket, queueForecast.patientsAhead, nearTurnDismissed]);
@@ -223,18 +219,15 @@ function Dashboard() {
   const bpStatus = userData?.healthMetrics?.bp ? analyzeBP(userData.healthMetrics.bp) : null;
   const bmiStatus = computeBMI(userData?.healthMetrics?.weight, userData?.healthMetrics?.height);
 
-  // SMART LANGUAGE DETECTOR:
-  // Pure Tagalog -> 'tl' | Pure English OR Taglish (Mixed) -> 'en'
   const detectLanguage = (inputStr) => {
     const text = inputStr.toLowerCase();
-    const tagalogRegex = /\b(ako|ko|akin|ang|ng|sa|mga|may|meron|wala|walang|masakit|sumasakit|nahihilo|hilo|lagnat|nilalagnat|ubo|inuubo|sipon|sinisipon|giniginaw|tiyan|ulo|dibdib|huminga|hirap|pantal|bulutong|tigdas|nakakahawa|nakagat|aso|pusa|kalmot|payat|bata|anak|gana|kumain|ayaw|buntis|bakuna|sanggol|nagtatae|suka|nasusuka|sugat|batok|katawan|suriin|ano|paano|kailan|bakit|saan|naman|po|ba|kasi|parang|sobrang|mataas|mababa|kumusta|tulong|gamot|lalamunan|plema|uhaw|ihi|kabag|oras|bukas|dokument|kailangan|magbook|kansela)\b/i;
+    const tagalogRegex = /\b(ako|ko|akin|ang|ng|sa|mga|may|meron|wala|walang|masakit|sumasakit|nahihilo|hilo|lagnat|nilalagnat|ubo|inuubo|sipon|sinisipon|giniginaw|tiyan|ulo|dibdib|huminga|hirap|pantal|bulutong|tigdas|nakakahawa|nakagat|aso|pusa|kalmot|payat|bata|anak|gana|kumain|ayaw|buntis|bakuna|sanggol|nagtatae|suka|nasusuka|sugat|batok|katawan|suriin|ano|paano|kailan|bakit|saan|naman|po|ba|kasi|parang|sobrang|mataas|mababa|kumusta|tulong|gamot|lalamunan|plema|uhaw|ihi|kabag|oras|bukas|dokumento|kailangan|magbook|kansela)\b/i;
     const englishRegex = /\b(i|im|i'm|my|me|have|has|had|am|is|are|was|were|feel|feeling|pain|ache|headache|stomach|stomachache|fever|chills|cough|coughing|cold|sore|throat|rash|rashes|shortness|breath|breathing|chest|dizzy|dizziness|bitten|bite|dog|cat|scratch|child|children|underweight|malnourished|malnutrition|pregnant|pregnancy|prenatal|maternal|vaccine|vaccination|immunization|diarrhea|vomit|vomiting|nausea|wound|cut|injury|analyze|check|what|how|when|why|where|the|and|with|for|from|high|low|blood|pressure|sugar|doctor|please|help|need|can|cannot|cant|today|hours|schedule|medicine|stock|available|documents|requirements|book|cancel)\b/i;
     const hasTagalog = tagalogRegex.test(text);
     const hasEnglish = englishRegex.test(text);
     return (hasTagalog && !hasEnglish) ? 'tl' : 'en';
   };
 
-  // "KA-HEALTH" 24/7 CONVERSATIONAL AI ENGINE
   const analyzeSymptomsWithAI = (inputStr) => {
     const text = inputStr.toLowerCase();
     const isTL = detectLanguage(inputStr) === 'tl';
@@ -248,51 +241,47 @@ function Dashboard() {
     let assessment = "";
     let recommendation = "";
 
-    // A. BARANGAY HEALTH CENTER OPERATING HOURS, SCHEDULES & REQUIRED DOCUMENTS
     if (text.includes("operating hours") || text.includes("schedule") || text.includes("immunization day") || text.includes("documents") || text.includes("requirements") || text.includes("oras") || text.includes("kailan") || text.includes("dokumento")) {
       return {
         sender: 'bot',
         text: isTL
-          ? `🏥 Impormasyon at Iskedyul ng Brgy. Old Cabalan Health Center:\n\n• Operating Hours: Lunes - Biyernes (8:00 AM – 5:00 PM)\n• General Consultation: Araw-araw (8:00 AM – 4:00 PM)\n• Maternal & Prenatal Care: Lunes, Miyerkules, Biyernes (8:00 AM – 12:00 PM)\n• Immunization / Bakuna Day: Miyerkules at Biyernes (8:00 AM – 3:00 PM)\n• Senior & Maintenance Medicine Pickup: Araw-araw via Priority Lane\n• Dental Services: Martes at Huwebes (8:00 AM – 12:00 PM)\n\n📋 Kailangang Dokumento: Barangay Health ID, PhilHealth ID, Senior/PWD ID, o Baby Book (para sa bakuna).`
-          : `🏥 Brgy. Old Cabalan Health Center Schedules & Requirements:\n\n• Operating Hours: Monday – Friday (8:00 AM – 5:00 PM)\n• General Consultation: Daily (8:00 AM – 4:00 PM)\n• Maternal & Prenatal Care: Mon, Wed, Fri (8:00 AM – 12:00 PM)\n• Immunization / Vaccination Days: Wednesday & Friday (8:00 AM – 3:00 PM)\n• Senior & Maintenance Medicine Pickup: Daily via Priority Lane\n• Dental Services: Tuesday & Thursday (8:00 AM – 12:00 PM)\n\n📋 Required Documents: Please bring your Barangay Health ID, PhilHealth ID, Senior/PWD ID, or Child Immunization Card (Baby Book).`,
+          ? `🏥 Iskedyul ng Brgy. Old Cabalan Health Center:\n\n• Operating Hours: Lunes - Biyernes (8:00 AM – 5:00 PM)\n• General Consultation: Araw-araw (8:00 AM – 4:00 PM)\n• Maternal & Prenatal Care: Lunes, Miyerkules, Biyernes (8:00 AM – 12:00 PM)\n• Bakuna / Immunization: Miyerkules at Biyernes (8:00 AM – 3:00 PM)\n• Senior & Maintenance Meds: Araw-araw\n• Dental Services: Martes at Huwebes (8:00 AM – 12:00 PM)\n\n📋 Kailangang Dalhin: Barangay ID, PhilHealth ID, Senior/PWD ID, o Baby Book.`
+          : `🏥 Brgy. Old Cabalan Health Center Schedules & Requirements:\n\n• Operating Hours: Monday – Friday (8:00 AM – 5:00 PM)\n• General Consultation: Daily (8:00 AM – 4:00 PM)\n• Maternal & Prenatal Care: Mon, Wed, Fri (8:00 AM – 12:00 PM)\n• Immunization / Vaccination: Wednesday & Friday (8:00 AM – 3:00 PM)\n• Senior & Maintenance Medicine Pickup: Daily\n• Dental Services: Tuesday & Thursday (8:00 AM – 12:00 PM)\n\n📋 Required Documents: Barangay ID, PhilHealth ID, Senior/PWD ID, or Baby Book.`,
         urgency: "CLINIC SCHEDULE & REQUIREMENTS",
         urgencyColor: "#0bc25c",
         suggestBook: true
       };
     }
 
-    // B. LIVE MEDICINE AVAILABILITY & DISTRIBUTION SCHEDULE
-    if (text.includes("medicine") || text.includes("stock") || text.includes("available") || text.includes("gamot") || text.includes("paracetamol") || text.includes("losartan") || text.includes("amlodipine") || text.includes("vitamins")) {
+    if (text.includes("medicine") || text.includes("stock") || text.includes("available") || text.includes("gamot") || text.includes("paracetamol") || text.includes("losartan") || text.includes("vitamins")) {
       const inStockMeds = inventoryList.filter(i => i.stock > 0);
       const medSummary = inStockMeds.length > 0
         ? inStockMeds.map(i => `• ${i.itemName} (${i.category}): ${i.stock} units available`).join('\n')
-        : (isTL ? '• Kasalukuyang ina-update ang listahan ng gamot sa pharmacy.' : '• Inventory stock is currently being updated by the pharmacy staff.');
+        : (isTL ? '• Kasalukuyang ina-update ang listahan ng gamot sa center.' : '• Medicine stock list is currently being updated by staff.');
 
       return {
         sender: 'bot',
         text: isTL
-          ? `💊 Live Medicine & Vaccine Availability sa Health Center:\n\n${medSummary}\n\n📅 Distribution Schedule: Araw-araw (8:00 AM - 4:00 PM). Mag-book lamang ng "Senior Citizen & Maintenance Medicine Pickup" o "General Consultation" at dalhin ang iyong reseta o Barangay ID.`
-          : `💊 Live Medicine & Vaccine Inventory at Old Cabalan Health Center:\n\n${medSummary}\n\n📅 Distribution Schedule: Daily (8:00 AM - 4:00 PM). You may book "Senior Citizen & Maintenance Medicine Pickup" or "General Consultation" and present your prescription or Barangay ID.`,
-        urgency: "LIVE PHARMACY STOCK CHECK",
+          ? `💊 Available na Gamot at Bakuna sa Health Center:\n\n${medSummary}\n\n📅 Maaaring kumuha ng gamot Lunes hanggang Biyernes (8:00 AM - 4:00 PM). Mag-book lamang ng appointment at dalhin ang iyong reseta o ID.`
+          : `💊 Available Medicines & Supplies at the Health Center:\n\n${medSummary}\n\n📅 Distribution is open Monday to Friday (8:00 AM - 4:00 PM). Simply book an appointment and bring your prescription or ID.`,
+        urgency: "MEDICINE AVAILABILITY",
         urgencyColor: "#3b82f6",
         suggestBook: true
       };
     }
 
-    // C. STEP-BY-STEP GUIDE FOR BOOKING OR CANCELLING APPOINTMENTS
     if (text.includes("how to book") || text.includes("cancel") || text.includes("step") || text.includes("paano magbook") || text.includes("kansela")) {
       return {
         sender: 'bot',
         text: isTL
-          ? `📖 Step-by-Step Guide sa Pag-book o Pag-cancel:\n\n1. Pag-book: I-click ang "Book Appointment" button sa ibaba o sa Dashboard.\n2. Piliin ang kailangang Serbisyo (hal. General Consultation, Maternal, Immunization, Maintenance Meds, o Dental).\n3. Piliin ang Petsa, Oras, at Priority Category, tapos i-click ang "Confirm Smart Appointment".\n4. Pag-cancel: Sa iyong Dashboard sa ilalim ng "Virtual Waiting Room", i-click lamang ang pulang "Cancel My Ticket" button at piliin ang dahilan.`
-          : `📖 Step-by-Step Guide to Booking or Cancelling Slots:\n\n1. To Book: Click the "Book Appointment" button below or on your Dashboard.\n2. Select your required Health Center Service (General Consultation, Maternal Care, Immunization, Maintenance Medicine Pickup, or Dental).\n3. Choose your preferred Date, Time, and Priority Category, then click "Confirm Smart Appointment".\n4. To Cancel: On your Dashboard under "Virtual Waiting Room", simply click the red "Cancel My Ticket" button and select your reason.`,
-        urgency: "STEP-BY-STEP PATIENT GUIDE",
+          ? `📖 Paano Mag-book o Mag-cancel ng Appointment:\n\n1. Pag-book: Pindutin ang "Book Appointment" button.\n2. Piliin ang Serbisyo, Petsa, Oras, at Category, tapos pindutin ang Confirm.\n3. Pag-cancel: Sa iyong Dashboard sa ilalim ng Live Queue Status, pindutin ang pulang "Cancel My Ticket" button.`
+          : `📖 How to Book or Cancel an Appointment:\n\n1. To Book: Click the "Book Appointment" button.\n2. Select your required Service, Date, Time, and Category, then click Confirm.\n3. To Cancel: On your Dashboard under Live Queue Status, click the red "Cancel My Ticket" button.`,
+        urgency: "BOOKING GUIDE",
         urgencyColor: "#a855f7",
         suggestBook: true
       };
     }
 
-    // 1. FULL VITALS ANALYSIS
     if (text.includes("vitals") || text.includes("analyze") || text.includes("health status") || text.includes("suriin") || text.includes("status ko")) {
       const noRec = isTL ? 'Wala pang record' : 'No record yet';
       const vitalsSummary = [
@@ -301,144 +290,110 @@ function Dashboard() {
         `• Body Temperature: ${metrics.temp ? `${metrics.temp} °C` : noRec}`,
         `• Blood Oxygen (SpO2): ${metrics.oxygen ? `${metrics.oxygen}%` : noRec}`,
         `• BMI: ${bmiStatus ? `${bmiStatus.val} (${bmiStatus.label})` : noRec}`,
-        decryptedCondition ? `• Special Alert: ${decryptedCondition}` : null
+        decryptedCondition ? `• Alert: ${decryptedCondition}` : null
       ].filter(Boolean).join('\n');
 
       if ((oxygen && oxygen < 94) || (temp && temp >= 38.0) || (bpStatus && bpStatus.label === "High Blood")) {
         urgency = isTL ? "MODERATE TO HIGH (May Abnormal sa Vitals)" : "MODERATE TO HIGH (Abnormal Vitals Alert)";
         urgencyColor = "#ef4444";
         recommendation = isTL 
-          ? "May nakitang abnormal reading sa iyong Vital Signs. Magpakonsulta agad sa ating Barangay Doctor."
-          : "Abnormal readings were detected in your latest vital signs. Please schedule an immediate consultation with our Barangay Physician.";
+          ? "May nakitang abnormal reading sa iyong Vital Signs. Magpakonsulta agad sa ating Doktor."
+          : "Abnormal readings were detected in your latest vital signs. Please schedule a consultation with our Doctor.";
       } else {
         urgency = isTL ? "NORMAL / MAAYOS NA VITALS" : "NORMAL / STABLE VITALS";
         urgencyColor = "#16a34a";
         recommendation = isTL
-          ? "Maayos ang iyong kasalukuyang Vital Signs! Ipagpatuloy ang healthy lifestyle at regular check-up."
-          : "Your recorded vital signs are currently within stable parameters. Continue maintaining a healthy lifestyle and attend regular check-ups.";
+          ? "Maayos ang iyong kasalukuyang Vital Signs! Ipagpatuloy ang healthy lifestyle."
+          : "Your recorded vital signs are within stable parameters. Continue maintaining a healthy lifestyle.";
       }
 
       return {
         sender: 'bot',
         text: isTL
-          ? `📊 Ka-Health AI Pagsusuri ng iyong Vital Signs:\n\n${vitalsSummary}\n\n💡 Rekomendasyon: ${recommendation}`
-          : `📊 Ka-Health AI Clinical Vitals Analysis:\n\n${vitalsSummary}\n\n💡 Recommendation: ${recommendation}`,
+          ? `📊 Pagsusuri ng iyong Vital Signs:\n\n${vitalsSummary}\n\n💡 Rekomendasyon: ${recommendation}`
+          : `📊 Clinical Vitals Analysis:\n\n${vitalsSummary}\n\n💡 Recommendation: ${recommendation}`,
         urgency,
         urgencyColor,
         suggestBook: true
       };
     }
 
-    // 2. EMERGENCY / RESPIRATORY / CARDIAC
-    if (text.includes("shortness of breath") || text.includes("difficulty breathing") || text.includes("can't breathe") || text.includes("chest pain") || text.includes("fainted") || text.includes("hirap huminga") || text.includes("masakit ang dibdib") || text.includes("hinimatay") || (oxygen && oxygen < 94)) {
+    if (text.includes("shortness of breath") || text.includes("difficulty breathing") || text.includes("can't breathe") || text.includes("chest pain") || text.includes("hirap huminga") || text.includes("masakit ang dibdib") || (oxygen && oxygen < 94)) {
       urgency = isTL ? "HIGH / KRITIKAL (Agarang Atensyong Medikal)" : "HIGH / CRITICAL (Immediate Medical Attention)";
       urgencyColor = "#ef4444";
       assessment = isTL
-        ? "Nakitaan ng posibleng respiratory o cardiac distress base sa iyong sintomas" + (oxygen ? ` at mababang Blood Oxygen (${oxygen}%).` : ".")
-        : "Potential respiratory or cardiac distress detected based on your reported symptoms" + (oxygen ? ` and low Blood Oxygen level (${oxygen}%).` : ".");
+        ? "Nakitaan ng posibleng respiratory o cardiac distress base sa iyong sintomas."
+        : "Potential respiratory or cardiac distress detected based on your symptoms.";
       recommendation = isTL
-        ? "Pumunta agad sa Old Cabalan Health Center o sa pinakamalapit na Emergency Room. Huwag nang magpaliban."
-        : "Please proceed immediately to the Old Cabalan Health Center or the nearest Hospital Emergency Room. Do not delay medical care.";
+        ? "Pumunta agad sa Old Cabalan Health Center o sa pinakamalapit na ospital."
+        : "Please proceed immediately to the Old Cabalan Health Center or the nearest Emergency Room.";
     } 
-    // 3. ANIMAL BITE / RABIES
     else if (text.includes("bite") || text.includes("bitten") || text.includes("dog") || text.includes("cat") || text.includes("scratch") || text.includes("rabies") || text.includes("kagat") || text.includes("nakagat") || text.includes("aso") || text.includes("pusa") || text.includes("kalmot")) {
-      urgency = isTL ? "HIGH / AGARAN (Animal Bite Protocol)" : "HIGH / URGENT (Animal Bite & Rabies Protocol)";
+      urgency = isTL ? "HIGH / AGARAN (Animal Bite Protocol)" : "HIGH / URGENT (Animal Bite Protocol)";
       urgencyColor = "#ef4444";
       assessment = isTL ? "Posibleng Rabies exposure mula sa kagat o kalmot ng hayop." : "Potential Rabies exposure from an animal bite or scratch.";
       recommendation = isTL
-        ? "Hugasan agad ang sugat gamit ang sabon at dumadaloy na tubig sa loob ng 10-15 minuto. Pumunta agad sa Health Center para sa Anti-Rabies Vaccine."
-        : "Wash the wound immediately with soap and running water for 10 to 15 minutes. Visit the Health Center immediately for Anti-Rabies Vaccination.";
+        ? "Hugasan agad ang sugat gamit ang sabon at tubig sa loob ng 10-15 minuto at pumunta sa Health Center."
+        : "Wash the wound immediately with soap and water for 10-15 minutes and visit the Health Center.";
     }
-    // 4. CONTAGIOUS SKIN / RASHES
     else if (text.includes("rash") || text.includes("rashes") || text.includes("chickenpox") || text.includes("measles") || text.includes("contagious") || text.includes("pantal") || text.includes("bulutong") || text.includes("tigdas") || text.includes("nakakahawa")) {
-      urgency = isTL ? "MODERATE-HIGH (Pag-iingat sa Nakakahawang Sakit)" : "MODERATE-HIGH (Contagious Disease Precaution)";
+      urgency = isTL ? "MODERATE-HIGH (Pag-iingat sa Nakakahawang Sakit)" : "MODERATE-HIGH (Contagious Precaution)";
       urgencyColor = "#ef4444";
       assessment = isTL
-        ? "Sintomas na maaaring konektado sa nakakahawang sakit sa balat o viral infection (hal. Tigdas o Bulutong)."
-        : "Symptoms indicate a potentially contagious dermatological or viral infection (e.g., Measles, Chickenpox, or Dengue rash).";
+        ? "Sintomas na maaaring konektado sa nakakahawang sakit sa balat o viral infection."
+        : "Symptoms indicate a potentially contagious skin or viral infection.";
       recommendation = isTL
-        ? "I-isolate muna ang pasyente at magsuot ng face mask bago pumunta sa Health Center. Ipagbigay-alam agad sa Admin para sa Contagious Alert."
-        : "Please isolate the patient, wear a face mask before visiting the clinic, and inform the triage staff immediately so a Contagious Alert can be noted.";
+        ? "Magsuot ng face mask bago pumunta sa Health Center at ipagbigay-alam agad sa staff."
+        : "Please wear a face mask before visiting the clinic and inform the staff upon arrival.";
     }
-    // 5. FEVER / DENGUE / FLU
     else if (text.includes("fever") || text.includes("chills") || text.includes("dengue") || text.includes("flu") || text.includes("lagnat") || text.includes("nilalagnat") || text.includes("giniginaw") || text.includes("trangkaso") || (temp && temp >= 37.8)) {
       urgency = "MODERATE (Priority Fever Consultation)";
       urgencyColor = "#f59e0b";
-      assessment = isTL
-        ? "May indikasyon ng lagnat o viral infection" + (temp ? ` (Recorded Temp: ${temp}°C).` : ".")
-        : "Indicators of febrile illness or systemic viral/bacterial infection" + (temp ? ` (Recorded Temp: ${temp}°C).` : ".");
+      assessment = isTL ? "May indikasyon ng lagnat o viral infection." : "Indicators of fever or viral infection.";
       recommendation = isTL
-        ? "Uminom ng maraming tubig, mag-punas ng maligamgam na tubig, at mag-book na ng appointment upang masuri ng Doktor."
-        : "Stay hydrated, perform tepid sponge baths, monitor your temperature every 4 hours, and book a consultation today.";
+        ? "Uminom ng maraming tubig, magpahinga, at mag-book ng appointment upang masuri ng Doktor."
+        : "Stay hydrated, rest, and book a consultation today.";
     }
-    // 6. COUGH / COLD / TB / ASTHMA
-    else if (text.includes("cough") || text.includes("cold") || text.includes("sore throat") || text.includes("phlegm") || text.includes("tb") || text.includes("asthma") || text.includes("ubo") || text.includes("inuubo") || text.includes("sipon") || text.includes("sinisipon") || text.includes("lalamunan") || text.includes("plema") || text.includes("hika")) {
-      urgency = "MODERATE (Respiratory & Contagious Precaution)";
+    else if (text.includes("cough") || text.includes("cold") || text.includes("sore throat") || text.includes("phlegm") || text.includes("tb") || text.includes("asthma") || text.includes("ubo") || text.includes("inuubo") || text.includes("sipon") || text.includes("lalamunan") || text.includes("hika")) {
+      urgency = "MODERATE (Respiratory Precaution)";
       urgencyColor = "#f59e0b";
-      assessment = isTL
-        ? "Posibleng Upper Respiratory Tract Infection (ubo/sipon), Asthma, o TB screening."
-        : "Possible Upper Respiratory Tract Infection (URTI), Asthma flare-up, or Tuberculosis (TB) screening requirement.";
+      assessment = isTL ? "Posibleng Upper Respiratory Tract Infection (ubo/sipon) o Asthma." : "Possible Upper Respiratory Tract Infection (cough/cold) or Asthma.";
       recommendation = isTL
-        ? "Magsuot ng face mask kapag pupunta sa Barangay Health Center upang maiwasan ang hawaan. Uminom ng maligamgam na tubig at mag-book ng konsultasyon."
-        : "Please wear a face mask when visiting the Barangay Health Center to prevent transmission. Drink warm fluids and book a consultation.";
+        ? "Magsuot ng face mask kapag pupunta sa Health Center at uminom ng maligamgam na tubig."
+        : "Please wear a face mask when visiting the Health Center and drink warm fluids.";
     }
-    // 7. HIGH BLOOD / DIZZINESS
     else if (text.includes("dizzy") || text.includes("dizziness") || text.includes("high blood") || text.includes("hypertension") || text.includes("bp") || text.includes("hilo") || text.includes("nahihilo") || text.includes("batok") || (bpStatus && bpStatus.label === "High Blood")) {
       urgency = "MODERATE (Blood Pressure Monitoring)";
       urgencyColor = "#f59e0b";
-      assessment = isTL
-        ? "Sintomas na maaaring konektado sa mataas na Blood Pressure" + (metrics.bp ? ` (Latest BP: ${metrics.bp}).` : ".")
-        : "Symptoms may be associated with elevated Blood Pressure or cardiovascular strain" + (metrics.bp ? ` (Latest BP: ${metrics.bp}).` : ".");
+      assessment = isTL ? "Sintomas na maaaring konektado sa Blood Pressure." : "Symptoms may be associated with elevated Blood Pressure.";
       recommendation = isTL
-        ? "Umupo muna at magpahinga. Iwasan ang maaalat na pagkain, inumin ang maintenance medicine, at magpa-check sa ating Doktor."
-        : "Sit down and rest in a calm environment. Avoid high-sodium foods, take your prescribed maintenance medication, and book a BP consultation.";
+        ? "Umupo muna at magpahinga. Iwasan ang maaalat na pagkain at magpa-check ng BP sa Health Center."
+        : "Sit down and rest. Avoid high-sodium foods and book a consultation for BP monitoring.";
     }
-    // 8. MALNOURISHED CHILDREN / NUTRITION
-    else if (text.includes("malnourished") || text.includes("malnutrition") || text.includes("underweight") || text.includes("nutrition") || text.includes("appetite") || text.includes("payat") || text.includes("timbang") || text.includes("walang gana") || (bmiStatus && bmiStatus.label === "Underweight")) {
-      urgency = "MODERATE (Barangay Nutrition Program)";
+    else if (text.includes("malnourished") || text.includes("malnutrition") || text.includes("underweight") || text.includes("nutrition") || text.includes("payat") || text.includes("timbang") || text.includes("walang gana") || (bmiStatus && bmiStatus.label === "Underweight")) {
+      urgency = "MODERATE (Nutrition Program)";
       urgencyColor = "#3b82f6";
-      assessment = isTL
-        ? "Pangangailangan sa Nutritional & Weight Assessment" + (bmiStatus ? ` (Current BMI: ${bmiStatus.val} - ${bmiStatus.label}).` : ".")
-        : "Requirement for Pediatric or Adult Nutritional & Weight Assessment" + (bmiStatus ? ` (Current BMI: ${bmiStatus.val} - ${bmiStatus.label}).` : ".");
+      assessment = isTL ? "Pangangailangan sa Nutritional & Weight Assessment." : "Requirement for Nutritional & Weight Assessment.";
       recommendation = isTL
-        ? "Mag-book ng appointment upang masuri ng ating Doktor at Barangay Nutrition Scholar (BNS) para sa libreng vitamins at nutrition program."
-        : "Book an appointment so our Barangay Physician and Barangay Nutrition Scholar (BNS) can evaluate the patient for free vitamins and nutrition support.";
+        ? "Mag-book ng appointment upang masuri ng Doktor para sa libreng vitamins at nutrition program."
+        : "Book an appointment so our Doctor can evaluate the patient for free vitamins and nutrition support.";
     }
-    // 9. MATERNAL / PREGNANCY
-    else if (text.includes("pregnant") || text.includes("pregnancy") || text.includes("prenatal") || text.includes("maternal") || text.includes("buntis")) {
-      urgency = "PRIORITY LANE (Maternal & Prenatal Care)";
-      urgencyColor = "#a855f7";
-      assessment = isTL ? "Maternal / Prenatal Care Check-up." : "Maternal / Prenatal Healthcare Inquiry.";
-      recommendation = isTL
-        ? "Piliin ang 'Maternal & Child Care' at 'Pregnant' category kapag nag-book ng appointment para sa Priority Queue Number (P-Series)."
-        : "Please select 'Maternal & Child Care' and the 'Pregnant' category when booking your appointment to receive a Priority Queue Number (P-Series).";
-    }
-    // 10. DENTAL SERVICES
-    else if (text.includes("tooth") || text.includes("dental") || text.includes("dentist") || text.includes("ngipin") || text.includes("bunot")) {
-      urgency = "ROUTINE (Barangay Dental Services)";
-      urgencyColor = "#0bc25c";
-      assessment = isTL ? "Pangangailangan sa Dental Check-up o Tooth Extraction." : "Dental Consultation or Tooth Extraction Inquiry.";
-      recommendation = isTL
-        ? "Available ang ating Barangay Dentist tuwing Martes at Huwebes (8:00 AM - 12:00 PM). Mag-book lamang ng 'Dental Services'."
-        : "Our Barangay Dentist is available every Tuesday and Thursday (8:00 AM - 12:00 PM). Please book 'Dental Services' to reserve your slot.";
-    }
-    // DEFAULT FALLBACK
     else {
       urgency = "LOW (Routine Consultation)";
       urgencyColor = "#16a34a";
       assessment = isTL
-        ? "Natanggap ko ang iyong mensahe. Maaari akong magbigay ng gabay sa iyong sintomas, clinic schedules, available na gamot, o pag-book ng appointment."
-        : "Thank you for reaching out to Ka-Health! I can assist you with symptom triage, clinic operating hours, live medicine stock, or booking an appointment.";
+        ? "Natanggap ko ang iyong mensahe. Maaari akong tumulong sa pagsusuri ng sintomas, oras ng clinic, o available na gamot."
+        : "Thank you for reaching out! I can help you with symptom checks, clinic schedules, or medicine availability.";
       recommendation = isTL
-        ? "Maaari kang mag-type ng sintomas gaya ng 'lagnat', 'ubo', 'nahihilo', o magtanong ng 'ano ang available na gamot' at 'operating hours'."
-        : "Try clicking the quick buttons above or type 'fever', 'cough', 'medicine availability', 'operating hours', or 'analyze my vitals'.";
+        ? "Mag-type ng sintomas gaya ng 'lagnat', 'ubo', 'nahihilo', o pindutin ang mga pagpipilian sa itaas."
+        : "Try clicking the quick buttons above or type 'fever', 'cough', 'medicine stock', or 'operating hours'.";
     }
 
     return {
       sender: 'bot',
       text: isTL
-        ? `🩺 Ka-Health AI Pagsusuri: ${assessment}\n\n💡 Rekomendasyon: ${recommendation}`
-        : `🩺 Ka-Health AI Assessment: ${assessment}\n\n💡 Recommendation: ${recommendation}`,
+        ? `🩺 Ka-Health Pagsusuri: ${assessment}\n\n💡 Rekomendasyon: ${recommendation}`
+        : `🩺 Ka-Health Assessment: ${assessment}\n\n💡 Recommendation: ${recommendation}`,
       urgency,
       urgencyColor,
       suggestBook: true
@@ -469,7 +424,7 @@ function Dashboard() {
       lastUpdated: new Date().toLocaleDateString()
     }).then(() => {
       setIsEditingPassport(false);
-      showAlert("Digital Health Passport updated!", "success");
+      showAlert("Health Passport updated!", "success");
     });
   };
 
@@ -522,7 +477,13 @@ function Dashboard() {
   const handleSubmitFeedback = (skipped = false) => {
     if (!skipped && rating === 0) return showAlert("Select star rating.", "error");
     update(ref(database, `appointments/${feedbackAppt.id}`), { feedbackSubmitted: true, rating: skipped ? 0 : rating, feedbackComment: skipped ? "" : feedbackText })
-    .then(() => { setFeedbackAppt(null); setRating(0); setFeedbackText(''); if(!skipped) showAlert("Feedback successfully updated in the system!", "success"); });
+    .then(() => { setFeedbackAppt(null); setRating(0); setFeedbackText(''); if(!skipped) showAlert("Feedback successfully saved!", "success"); });
+  };
+
+  const deleteMyNotification = (e, notifId) => {
+    e.stopPropagation();
+    if (!userData) return;
+    set(ref(database, `notifications/${userData.id}/${notifId}`), null);
   };
 
   return (
@@ -530,23 +491,23 @@ function Dashboard() {
       {alertBox.show && ( <div className="modal-overlay hide-on-print"><div className="modern-register-card" style={{ maxWidth: '350px', textAlign: 'center', padding: '30px', background: '#ffffff' }}><div style={{ fontSize: '50px', marginBottom: '15px', color: alertBox.type === 'success' ? '#10b981' : '#ef4444' }}>{alertBox.type === 'success' ? <FaCheckCircle /> : <FaTimesCircle />}</div><h3 style={{ color: '#1e293b', marginBottom: '10px' }}>{alertBox.message}</h3><button onClick={() => setAlertBox({ show: false, message: '', type: 'info' })} className="btn-green-full" style={{ margin: 0 }}>OK</button></div></div> )}
       {confirmBox.show && ( <div className="modal-overlay hide-on-print"><div className="modern-register-card" style={{ maxWidth: '400px', textAlign: 'center', padding: '30px', background: '#ffffff' }}><div style={{ fontSize: '50px', color: '#ef4444', marginBottom: '15px' }}><FaExclamationTriangle /></div><h3 style={{ color: '#1e293b', marginBottom: '10px' }}>{confirmBox.message}</h3><div style={{ display: 'flex', gap: '10px' }}><button onClick={() => setConfirmBox({ show: false, message: '', onConfirm: null })} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', background: 'white', color: '#64748b', fontWeight: 'bold', cursor: 'pointer' }}>Go Back</button><button onClick={() => { confirmBox.onConfirm(); setConfirmBox({ show: false, message: '', onConfirm: null }); }} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', background: '#ef4444', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}>Yes, Cancel it</button></div></div></div> )}
       
-      {/* VIRTUAL WAITING ROOM: "2 NUMBERS AWAY" PUSH / SMS ALERT */}
+      {/* VIRTUAL WAITING ROOM: "2 NUMBERS AWAY" SMS / PUSH ALERT POPUP */}
       {showNearTurnPopup && (
         <div className="modal-overlay" style={{ zIndex: 9998 }}>
-          <div className="modern-register-card" style={{ maxWidth: '440px', textAlign: 'center', padding: '35px', background: '#ffffff', border: '4px solid #f59e0b' }}>
+          <div className="modern-register-card" style={{ maxWidth: '430px', textAlign: 'center', padding: '35px', background: '#ffffff', border: '4px solid #f59e0b' }}>
             <div style={{ fontSize: '50px', marginBottom: '10px', color: '#f59e0b' }}><FaSms /></div>
             <span style={{ background: '#fffbeb', color: '#d97706', padding: '4px 12px', borderRadius: '15px', fontSize: '11px', fontWeight: '800', border: '1px solid #fde68a' }}>
-              VIRTUAL WAITING ROOM SMS / PUSH ALERT
+              SMS / PUSH QUEUE ALERT
             </span>
             <h2 style={{ color: '#1e293b', margin: '15px 0 8px 0', fontSize: '24px', fontWeight: '900' }}>
               You Are {queueForecast.patientsAhead} {queueForecast.patientsAhead === 1 ? 'Number' : 'Numbers'} Away!
             </h2>
-            <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '15px', lineHeight: '1.5' }}>
-              Queue <strong>{myTicket}</strong> – Currently Serving: <strong>{currentServing}</strong>.<br/>
-              Estimated wait time is <strong>~{queueForecast.estWaitMins} minutes</strong>. Please start heading to Barangay Old Cabalan Health Center now.
+            <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '20px', lineHeight: '1.5' }}>
+              Your Ticket: <strong>{myTicket}</strong> — Currently Serving: <strong>{currentServing}</strong>.<br/>
+              Estimated wait time is <strong>~{queueForecast.estWaitMins} mins</strong>. Please proceed to the health center now.
             </p>
             <button onClick={() => { setShowNearTurnPopup(false); setNearTurnDismissed(true); }} className="btn-green-full" style={{ background: '#f59e0b', margin: 0 }}>
-              Got It, Heading to Clinic
+              OK, Heading to Center
             </button>
           </div>
         </div>
@@ -555,19 +516,18 @@ function Dashboard() {
       {/* "KA-HEALTH" 24/7 CONVERSATIONAL AI ASSISTANT MODAL */}
       {showAIModal && (
         <div className="modal-overlay" style={{ zIndex: 2000 }}>
-          <div className="modern-register-card" style={{ maxWidth: '560px', padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '84vh' }}>
+          <div className="modern-register-card" style={{ maxWidth: '550px', padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '82vh' }}>
             <div style={{ background: 'linear-gradient(135deg, #0bc25c, #00796b)', padding: '18px 25px', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{ background: 'white', color: '#0bc25c', width: '42px', height: '42px', borderRadius: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '22px' }}><FaRobot /></div>
+                <div style={{ background: 'white', color: '#0bc25c', width: '40px', height: '40px', borderRadius: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '20px' }}><FaRobot /></div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '17px', fontWeight: '800' }}>"Ka-Health" 24/7 AI Assistant</h3>
-                  <span style={{ fontSize: '11px', opacity: 0.9 }}>Tagalog/English Health, Schedule & Triage Bot</span>
+                  <h3 style={{ margin: 0, fontSize: '17px', fontWeight: '800' }}>"Ka-Health" AI Assistant</h3>
+                  <span style={{ fontSize: '11px', opacity: 0.9 }}>24/7 Tagalog/English Health & Schedule Assistant</span>
                 </div>
               </div>
               <button onClick={() => setShowAIModal(false)} style={{ background: 'transparent', border: 'none', color: 'white', fontSize: '20px', cursor: 'pointer' }}><FaTimes /></button>
             </div>
 
-            {/* Quick Symptom & Clinic Info Chips in English */}
             <div style={{ padding: '10px 15px', background: '#f0fdf4', borderBottom: '1px solid #dcfce7', display: 'flex', gap: '6px', flexWrap: 'wrap', flexShrink: 0 }}>
               <button type="button" onClick={() => handleQuickPrompt("Analyze my vitals")} style={{ background: '#0bc25c', border: 'none', color: 'white', padding: '5px 10px', borderRadius: '15px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>📊 Analyze My Vitals</button>
               <button type="button" onClick={() => handleQuickPrompt("Check medicine availability")} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#2563eb', padding: '5px 10px', borderRadius: '15px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>💊 Medicine Stock</button>
@@ -575,10 +535,8 @@ function Dashboard() {
               <button type="button" onClick={() => handleQuickPrompt("How to book or cancel an appointment")} style={{ background: '#faf5ff', border: '1px solid #e9d5ff', color: '#7e22ce', padding: '5px 10px', borderRadius: '15px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>📖 Booking Guide</button>
               <button type="button" onClick={() => handleQuickPrompt("I have a fever and chills")} style={{ background: 'white', border: '1px solid #bbf7d0', color: '#16a34a', padding: '5px 10px', borderRadius: '15px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>🌡️ Fever & Chills</button>
               <button type="button" onClick={() => handleQuickPrompt("I have a cough and cold")} style={{ background: 'white', border: '1px solid #bbf7d0', color: '#16a34a', padding: '5px 10px', borderRadius: '15px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>😷 Cough & Cold</button>
-              <button type="button" onClick={() => handleQuickPrompt("Child is underweight and malnourished")} style={{ background: 'white', border: '1px solid #bbf7d0', color: '#16a34a', padding: '5px 10px', borderRadius: '15px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>🍎 Child Malnutrition</button>
             </div>
 
-            {/* Chat Messages */}
             <div style={{ flex: 1, padding: '20px', overflowY: 'auto', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {aiMessages.map((msg, index) => (
                 <div key={index} style={{ alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start', maxWidth: '88%' }}>
@@ -605,7 +563,7 @@ function Dashboard() {
                         onClick={() => { setShowAIModal(false); setShowBooking(true); }}
                         style={{ marginTop: '12px', width: '100%', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', padding: '8px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                       >
-                        <FaRegCalendarAlt /> Book Smart Appointment Now
+                        <FaRegCalendarAlt /> Book Appointment Now
                       </button>
                     )}
                   </div>
@@ -613,7 +571,6 @@ function Dashboard() {
               ))}
             </div>
 
-            {/* Input Form */}
             <form onSubmit={handleSendAI} style={{ padding: '15px 20px', background: 'white', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '10px' }}>
               <input 
                 type="text" 
@@ -636,7 +593,7 @@ function Dashboard() {
           <div className="modern-register-card" style={{ maxWidth: '450px', textAlign: 'center', padding: '40px', background: '#ffffff', border: '4px solid #10b981' }}>
             <div style={{ fontSize: '60px', marginBottom: '15px', color: '#10b981', animation: 'pulse 1.5s infinite' }}><FaBullhorn /></div>
             <h1 style={{ color: '#1e293b', marginBottom: '10px', fontSize: '28px', fontWeight: '900' }}>IT'S YOUR TURN!</h1>
-            <p style={{ color: '#64748b', fontSize: '16px', fontWeight: '600', marginBottom: '20px' }}>Please proceed to the consultation room immediately.</p>
+            <p style={{ color: '#64748b', fontSize: '16px', fontWeight: '600', marginBottom: '20px' }}>Please proceed to the doctor's office immediately.</p>
             <div style={{ fontSize: '50px', fontWeight: '900', color: '#0bc25c', marginBottom: '30px' }}>{myTicket}</div>
             <button onClick={() => setShowCallPopup(false)} className="btn-green-full" style={{ margin: 0, fontSize: '16px', padding: '15px' }}>I'm on my way</button>
           </div>
@@ -671,23 +628,60 @@ function Dashboard() {
       <nav className="dash-nav">
         <div className="dash-nav-left" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('dashboard')}>
           <div className="dash-logo-box"><img src="https://cdn-icons-png.flaticon.com/512/2966/2966327.png" alt="Logo" style={{ width: '28px' }} /></div>
-          <div><h2>MediQueue: Old Cabalan Health</h2><p>Predictive Analytics & Smart Records</p></div>
+          <div><h2>Old Cabalan Health App</h2><p>Your Health, Our Priority</p></div>
         </div>
         <div className="dash-nav-right">
           <div style={{ position: 'relative' }}>
-            <button className="dash-icon-btn" onClick={() => setShowNotifDropdown(!showNotifDropdown)}><FaBell />{myNotifications.length > 0 && <span className="dash-badge">{myNotifications.length}</span>}</button>
+            <button className="dash-icon-btn" onClick={() => setShowNotifDropdown(!showNotifDropdown)}>
+              <FaBell />
+              {myNotifications.length > 0 && <span className="dash-badge">{myNotifications.length}</span>}
+            </button>
+
+            {/* FIXED ANDROID NOTIFICATION DROPDOWN (CENTERED ON MOBILE, NO LEFT OVERLAP) */}
             {showNotifDropdown && (
-              <div style={{ position: 'absolute', top: '45px', right: '-10px', background: 'white', width: '320px', maxWidth: '85vw', borderRadius: '12px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', border: '1px solid #e2e8f0', zIndex: 9999, overflow: 'hidden' }}>
-                <div style={{ padding: '15px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><h4 style={{ margin: 0, color: '#1e293b', fontSize: '14px' }}>Notifications</h4><span onClick={() => setShowNotifDropdown(false)} style={{ fontSize: '11px', color: '#64748b', cursor: 'pointer', fontWeight: 'bold' }}><FaTimes /> Close</span></div>
-                <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
-                  {myNotifications.length === 0 ? <p style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>No new notifications.</p> : 
+              <div style={{ 
+                position: 'fixed', 
+                top: '75px', 
+                left: '50%', 
+                transform: 'translateX(-50%)', 
+                background: 'white', 
+                width: '92vw', 
+                maxWidth: '350px', 
+                borderRadius: '12px', 
+                boxShadow: '0 10px 30px rgba(0,0,0,0.25)', 
+                border: '1px solid #e2e8f0', 
+                zIndex: 9999, 
+                overflow: 'hidden',
+                textAlign: 'left'
+              }}>
+                <div style={{ padding: '14px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h4 style={{ margin: 0, color: '#1e293b', fontSize: '14px' }}>Notifications</h4>
+                  <span onClick={() => setShowNotifDropdown(false)} style={{ fontSize: '12px', color: '#64748b', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <FaTimes /> Close
+                  </span>
+                </div>
+                <div style={{ maxHeight: '340px', overflowY: 'auto' }}>
+                  {myNotifications.length === 0 ? (
+                    <p style={{ textAlign: 'center', padding: '25px 15px', color: '#94a3b8', margin: 0, fontSize: '13px' }}>No new notifications.</p>
+                  ) : (
                     myNotifications.map((notif) => (
-                      <div key={notif.id} onClick={() => {setShowNotifDropdown(false); setActiveTab('history');}} style={{ padding: '15px', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: '12px', alignItems: 'flex-start', cursor: 'pointer' }}>
-                        <div style={{ background: '#eff6ff', color: '#3b82f6', padding: '10px', borderRadius: '50%', fontSize: '14px' }}><FaBell /></div>
-                        <div><h4 style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#1e293b' }}>{notif.title}</h4><p style={{ margin: '0 0 6px 0', fontSize: '12px', color: '#64748b', lineHeight: '1.4' }}>{notif.message}</p><span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>{notif.timestamp}</span></div>
+                      <div key={notif.id} onClick={() => { setShowNotifDropdown(false); setActiveTab('history'); }} style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: '12px', alignItems: 'flex-start', cursor: 'pointer', position: 'relative' }}>
+                        <div style={{ background: '#eff6ff', color: '#3b82f6', padding: '10px', borderRadius: '50%', fontSize: '14px', flexShrink: 0 }}><FaBell /></div>
+                        <div style={{ flex: 1, paddingRight: '18px' }}>
+                          <h4 style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#1e293b' }}>{notif.title}</h4>
+                          <p style={{ margin: '0 0 6px 0', fontSize: '12px', color: '#64748b', lineHeight: '1.4' }}>{notif.message}</p>
+                          <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>{notif.timestamp}</span>
+                        </div>
+                        <button 
+                          onClick={(e) => deleteMyNotification(e, notif.id)} 
+                          title="Remove notification"
+                          style={{ position: 'absolute', top: '12px', right: '12px', background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '13px', padding: '2px' }}
+                        >
+                          <FaTimes />
+                        </button>
                       </div>
                     ))
-                  }
+                  )}
                 </div>
               </div>
             )}
@@ -714,7 +708,7 @@ function Dashboard() {
                    <span style={{ background: '#f0fdf4', color: '#0bc25c', padding: '4px 15px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', border: '1px solid #bbf7d0', display: 'inline-block' }}>
                      {userData.idType || 'Barangay Health ID'}: {userData.idNumber || `OCH-${userData.id.substring(0, 5).toUpperCase()}`}
                    </span>
-                   <button onClick={() => setActiveTab('history')} style={{ marginTop: '20px', width: '100%', background: '#eff6ff', color: '#3b82f6', border: '1px solid #bfdbfe', padding: '10px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', display:'flex', justifyContent:'center', alignItems:'center', gap:'8px' }}><FaHistory /> Digital Health Passport</button>
+                   <button onClick={() => setActiveTab('history')} style={{ marginTop: '20px', width: '100%', background: '#eff6ff', color: '#3b82f6', border: '1px solid #bfdbfe', padding: '10px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', display:'flex', justifyContent:'center', alignItems:'center', gap:'8px' }}><FaHistory /> View Medical History</button>
                  </div>
                  <div style={{ flex: 1, minWidth: '280px' }}>
                    {userData?.healthMetrics?.conditions && (
@@ -723,18 +717,17 @@ function Dashboard() {
                        <p style={{ margin: '5px 0 0 0', color: '#b91c1c', fontSize: '15px', fontWeight: '600' }}>{decryptData(userData.healthMetrics.conditions)}</p>
                      </div>
                    )}
-                   <h3 style={{ color: '#1e293b', fontSize: '18px', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px', marginBottom: '15px' }}>Digital Barangay Health Profile</h3>
+                   <h3 style={{ color: '#1e293b', fontSize: '18px', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px', marginBottom: '15px' }}>Personal Information</h3>
                    <p style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#334155' }}><strong>Email:</strong> {userData.email}</p>
                    <p style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#334155' }}><strong>Contact:</strong> {userData.contact}</p>
                    <p style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#334155' }}><strong>Purok:</strong> {userData.purok}</p>
                    <p style={{ margin: '0 0 20px 0', fontSize: '14px', color: '#334155' }}><strong>Address:</strong> {userData.address}</p>
 
-                   {/* DIGITAL HEALTH PASSPORT SUMMARY & EDITOR */}
                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '18px' }}>
                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                        <h4 style={{ margin: 0, color: '#166534', fontSize: '15px', display: 'flex', alignItems: 'center', gap: '6px' }}><FaIdCard /> Digital Health Passport</h4>
                        <button onClick={() => setIsEditingPassport(!isEditingPassport)} style={{ background: 'white', border: '1px solid #0bc25c', color: '#0bc25c', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>
-                         {isEditingPassport ? 'Cancel' : 'Edit Passport'}
+                         {isEditingPassport ? 'Cancel' : 'Edit'}
                        </button>
                      </div>
                      {isEditingPassport ? (
@@ -748,16 +741,16 @@ function Dashboard() {
                            <input type="text" className="modern-input" value={passportEdit.immunizations} onChange={(e) => setPassportEdit({...passportEdit, immunizations: e.target.value})} style={{ background: 'white', padding: '8px' }} />
                          </div>
                          <div>
-                           <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569' }}>BASIC MEDICAL HISTORY</label>
+                           <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569' }}>MEDICAL HISTORY</label>
                            <input type="text" className="modern-input" value={passportEdit.medicalHistory} onChange={(e) => setPassportEdit({...passportEdit, medicalHistory: e.target.value})} style={{ background: 'white', padding: '8px' }} />
                          </div>
-                         <button onClick={handleSavePassport} className="btn-green-full" style={{ padding: '10px', fontSize: '13px' }}>Save Health Passport</button>
+                         <button onClick={handleSavePassport} className="btn-green-full" style={{ padding: '10px', fontSize: '13px' }}>Save Changes</button>
                        </div>
                      ) : (
                        <div style={{ fontSize: '13px', color: '#334155', lineHeight: '1.6' }}>
                          <div><strong>Allergies:</strong> {userData.healthPassport?.allergies || 'None reported'}</div>
                          <div><strong>Immunizations:</strong> {userData.healthPassport?.immunizations || 'Standard Barangay Immunization'}</div>
-                         <div><strong>Medical History:</strong> {userData.healthPassport?.medicalHistory || 'No major past illnesses'}</div>
+                         <div><strong>Medical History:</strong> {userData.healthPassport?.medicalHistory || 'None reported'}</div>
                        </div>
                      )}
                    </div>
@@ -780,18 +773,18 @@ function Dashboard() {
              <div className="dash-hero">
                <FaStethoscope style={{ position: 'absolute', right: '-20px', top: '10px', fontSize: '150px', opacity: '0.1' }} />
                <h1>Welcome back, {userData ? userData.fullName.split(' ')[0] : "Resident"}! 👋</h1>
-               <p>Digital Health Passport, AI Predictive Queueing & Smart Appointment Portal</p>
+               <p>Book your appointment and monitor your live queue status</p>
              </div>
              
              <div className="dash-quick-actions" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
                <div className="dash-action-card" onClick={handleBookClick} style={{ opacity: myTicket !== "None" || systemSettings.status === 'Closed' ? 0.6 : 1, cursor: myTicket !== "None" || systemSettings.status === 'Closed' ? 'not-allowed' : 'pointer' }}>
-                 <div className="dash-icon-wrapper" style={{ background: '#10b981' }}><FaRegCalendarAlt /></div><span>Smart Appointment</span>
+                 <div className="dash-icon-wrapper" style={{ background: '#10b981' }}><FaRegCalendarAlt /></div><span>Book Appointment</span>
                </div>
                <div className="dash-action-card" onClick={() => setActiveTab('history')}>
-                 <div className="dash-icon-wrapper" style={{ background: '#3b82f6' }}><FaIdCard /></div><span>Health Passport & Logs</span>
+                 <div className="dash-icon-wrapper" style={{ background: '#3b82f6' }}><FaHistory /></div><span>View History</span>
                </div>
                <div className="dash-action-card" onClick={() => setActiveTab('availableTimes')}>
-                 <div className="dash-icon-wrapper" style={{ background: '#f97316' }}><FaClock /></div><span>Shift & Slot Tracker</span>
+                 <div className="dash-icon-wrapper" style={{ background: '#f97316' }}><FaClock /></div><span>Available Slots</span>
                </div>
                <div className="dash-action-card" onClick={() => setShowAIModal(true)} style={{ border: '2px solid #a855f7' }}>
                  <div className="dash-icon-wrapper" style={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)' }}><FaRobot /></div><span>"Ka-Health" AI Bot</span>
@@ -800,21 +793,19 @@ function Dashboard() {
              
              <div className="dash-grid">
                <div className="dash-left">
-                 {/* VIRTUAL WAITING ROOM & AI PREDICTIVE WAIT TIME FORECASTING */}
                  <div className="dash-card">
                    <div className="dash-card-header">
                      <div className="dash-card-icon"><FaStethoscope /></div>
                      <div>
-                       <h3 className="dash-card-title">Virtual Waiting Room & Mobile Queue Tracker</h3>
-                       <p className="dash-card-subtitle">AI-Assisted Wait Time Forecasting & Live Status</p>
+                       <h3 className="dash-card-title">Live Queue Status</h3>
+                       <p className="dash-card-subtitle">Virtual Waiting Room & Mobile Queue Tracker</p>
                      </div>
                    </div>
                    <div className="doctor-avail-box">
-                     {/* LIVE BANNER: "Queue #12 - Currently Serving: #9" */}
                      <div style={{ background: 'white', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '14px 18px', marginBottom: '15px', textAlign: 'center' }}>
-                       <span style={{ fontSize: '11px', fontWeight: '800', color: '#00796b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>LIVE MOBILE QUEUE TRACKER</span>
+                       <span style={{ fontSize: '11px', fontWeight: '800', color: '#00796b', textTransform: 'uppercase' }}>LIVE QUEUE TRACKER</span>
                        <div style={{ fontSize: '20px', fontWeight: '900', color: '#1e293b', marginTop: '4px' }}>
-                         Queue {myTicket !== "None" ? `#${myTicket}` : "(No Ticket)"} — Currently Serving: <span style={{ color: '#0bc25c' }}>{currentServing !== "None" ? `#${currentServing}` : "None"}</span>
+                         Queue {myTicket !== "None" ? `#${myTicket}` : "(None)"} — Currently Serving: <span style={{ color: '#0bc25c' }}>{currentServing !== "None" ? `#${currentServing}` : "None"}</span>
                        </div>
                      </div>
 
@@ -839,16 +830,12 @@ function Dashboard() {
 
                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                        <div>
-                         <h4 style={{ margin: 0, color: '#1e293b', fontSize: '14px', fontWeight: '800' }}>
-                           {activeApptObj?.healthService || 'Scheduled Consultation'}
-                         </h4>
+                         <h4 style={{ margin: 0, color: '#1e293b', fontSize: '14px', fontWeight: '800' }}>My Ticket</h4>
                          <p style={{ margin: 0, color: '#64748b', fontSize: '12px' }}>
-                           {assignedTime ? `Assigned Slot: ${assignedTime}` : (activeApptObj?.preferredTime ? `Preferred: ${activeApptObj.preferredTime}` : 'No active booking')}
+                           {assignedTime ? `Schedule: ${assignedTime}` : (activeApptObj?.healthService || 'Pending')}
                          </p>
                        </div>
-                       <span style={{ background: '#eff6ff', color: '#2563eb', padding: '4px 12px', borderRadius: '15px', fontSize: '12px', fontWeight: 'bold', border: '1px solid #bfdbfe' }}>
-                         {activeApptObj?.queueStage || (myTicket !== "None" ? 'Waiting at Home' : 'Idle')}
-                       </span>
+                       <span style={{ fontSize: '22px', color: '#3b82f6', fontWeight: '900' }}>{myTicket}</span>
                      </div>
 
                      {myTicket !== "None" && (
@@ -860,14 +847,14 @@ function Dashboard() {
                  </div>
 
                  <div className="dash-card">
-                   <div className="dash-card-header"><div className="dash-card-icon" style={{ color: '#3b82f6', background: '#eff6ff' }}><FaBell /></div><div><h3 className="dash-card-title">Recent Push & Queue Alerts</h3><p className="dash-card-subtitle">Your latest notifications</p></div></div>
+                   <div className="dash-card-header"><div className="dash-card-icon" style={{ color: '#3b82f6', background: '#eff6ff' }}><FaBell /></div><div><h3 className="dash-card-title">Recent Updates</h3><p className="dash-card-subtitle">Your latest notifications</p></div></div>
                    {myNotifications.length === 0 ? <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: '14px', padding: '20px 0' }}>No new updates available.</p> : myNotifications.slice(0, 3).map((notif) => (<div key={notif.id} className="activity-item"><div className="activity-icon"><FaRegListAlt /></div><div style={{ flex: 1 }}><h4 style={{ margin: 0, color: '#1e293b', fontSize: '14px', fontWeight: '700' }}>{notif.title}</h4><p style={{ margin: 0, color: '#64748b', fontSize: '12px' }}>{notif.message}</p><span style={{ fontSize: '11px', color: '#94a3b8' }}>{notif.timestamp}</span></div><FaChevronRight style={{ color: '#cbd5e1' }} /></div>))}
                  </div>
                </div>
                
                <div className="dash-right">
                  <div className="dash-card">
-                   <div className="dash-card-header"><div className="dash-card-icon" style={{ color: '#ef4444', background: '#fef2f2' }}><FaHeart /></div><div><h3 className="dash-card-title">Health Metrics</h3><p className="dash-card-subtitle">Latest clinical readings</p></div></div>
+                   <div className="dash-card-header"><div className="dash-card-icon" style={{ color: '#ef4444', background: '#fef2f2' }}><FaHeart /></div><div><h3 className="dash-card-title">Health Metrics</h3><p className="dash-card-subtitle">Latest readings</p></div></div>
                    <div className="metric-row"><div className="metric-info"><FaUser style={{ color: '#f59e0b', fontSize: '18px' }} /><div><h4>Height / Weight</h4><h2>{userData?.healthMetrics?.height ? `${userData.healthMetrics.height} cm` : '--'} / {userData?.healthMetrics?.weight ? `${userData.healthMetrics.weight} kg` : '--'}</h2></div></div></div>
                    <div className="metric-row"><div className="metric-info"><FaHeart style={{ color: '#10b981', fontSize: '18px' }} /><div><h4>Blood Pressure</h4><h2>{userData?.healthMetrics?.bp || 'TBA'}</h2></div></div>{bpStatus ? <span style={{ background: '#f1f5f9', color: bpStatus.color, padding: '4px 10px', borderRadius: '15px', fontSize: '10px', fontWeight: 'bold' }}>{bpStatus.label}</span> : <span className="metric-badge">PENDING</span>}</div>
                    <div className="metric-row"><div className="metric-info"><FaHeartbeat style={{ color: '#3b82f6', fontSize: '18px' }} /><div><h4>Heart Rate</h4><h2>{userData?.healthMetrics?.hr ? `${userData.healthMetrics.hr} bpm` : 'TBA'}</h2></div></div></div>
